@@ -212,7 +212,29 @@ const config = {
     delayMs: parseInt(process.env.USER_MESSAGE_QUEUE_DELAY_MS) || 200, // 请求间隔（毫秒）
     timeoutMs: parseInt(process.env.USER_MESSAGE_QUEUE_TIMEOUT_MS) || 5000, // 队列等待超时（毫秒），锁持有时间短，无需长等待
     lockTtlMs: parseInt(process.env.USER_MESSAGE_QUEUE_LOCK_TTL_MS) || 5000 // 锁TTL（毫秒），5秒足以覆盖请求发送
-  }
+  },
+
+  // 📧 邮箱认证配置（独立于LDAP用户系统）
+  emailAuth: {
+    enabled: process.env.EMAIL_AUTH_ENABLED === 'true', // 默认关闭
+    accessTokenExpiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '1h', // Access Token 有效期
+    refreshTokenExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '7d', // Refresh Token 有效期
+    maxApiKeysPerUser: parseInt(process.env.MAX_EMAIL_USER_API_KEYS) || 3, // 每用户最大 API Key 数量
+    allowUserDeleteApiKeys: process.env.ALLOW_EMAIL_USER_DELETE_API_KEYS === 'true' // 允许用户删除 API Keys
+  },
+
+  // 📮 SMTP 邮件服务配置
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: parseInt(process.env.SMTP_PORT) || 587,
+    user: process.env.SMTP_USER || '',
+    password: process.env.SMTP_PASSWORD || '',
+    from: process.env.EMAIL_FROM || process.env.SMTP_USER || 'noreply@example.com',
+    tlsRejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== 'false'
+  },
+
+  // 🌐 应用URL配置（用于邮件中的链接）
+  appUrl: process.env.APP_URL || 'http://localhost:3000'
 }
 
 module.exports = config

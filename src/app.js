@@ -27,6 +27,8 @@ const droidRoutes = require('./routes/droidRoutes')
 const userRoutes = require('./routes/userRoutes')
 const azureOpenaiRoutes = require('./routes/azureOpenaiRoutes')
 const webhookRoutes = require('./routes/webhook')
+const emailAuthRoutes = require('./routes/emailAuthRoutes')
+const emailUserRoutes = require('./routes/emailUserRoutes')
 
 // Import middleware
 const {
@@ -284,6 +286,9 @@ class Application {
       this.app.use('/droid', droidRoutes) // Droid (Factory.ai) API 转发
       this.app.use('/azure', azureOpenaiRoutes)
       this.app.use('/admin/webhook', webhookRoutes)
+      // 📧 邮箱认证路由（独立于LDAP用户系统）
+      this.app.use('/api/v1/auth', emailAuthRoutes)
+      this.app.use('/api/v1/user', emailUserRoutes)
 
       // 🏠 根路径重定向到新版管理界面
       this.app.get('/', (req, res) => {
