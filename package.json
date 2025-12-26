@@ -45,11 +45,18 @@
     "data:export:encrypted": "node scripts/data-transfer-enhanced.js export --decrypt=false",
     "data:import:enhanced": "node scripts/data-transfer-enhanced.js import",
     "data:debug": "node scripts/debug-redis-keys.js",
-    "test:pricing-fallback": "node scripts/test-pricing-fallback.js"
+    "test:pricing-fallback": "node scripts/test-pricing-fallback.js",
+    "db:migrate": "npx prisma migrate dev",
+    "db:migrate:deploy": "npx prisma migrate deploy",
+    "db:push": "npx prisma db push",
+    "db:seed:plans": "node scripts/seed-plans.js",
+    "db:studio": "npx prisma studio",
+    "db:generate": "npx prisma generate"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.861.0",
     "@aws-sdk/credential-providers": "^3.859.0",
+    "@prisma/client": "^5.22.0",
     "axios": "^1.6.0",
     "bcryptjs": "^2.4.3",
     "chalk": "^4.1.2",
@@ -70,6 +77,8 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.6",
     "ora": "^5.4.1",
+    "pg": "^8.16.3",
+    "prisma": "^5.22.0",
     "rate-limiter-flexible": "^5.0.5",
     "socks-proxy-agent": "^8.0.2",
     "string-similarity": "^4.0.4",

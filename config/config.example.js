@@ -18,6 +18,22 @@ const config = {
     encryptionKey: process.env.ENCRYPTION_KEY || 'CHANGE-THIS-32-CHARACTER-KEY-NOW'
   },
 
+  // 🗄️ PostgreSQL配置
+  database: {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT) || 5432,
+    name: process.env.DB_NAME || 'claude_relay',
+    user: process.env.DB_USER || 'crs_user',
+    password: process.env.DB_PASSWORD || '',
+    url: process.env.DATABASE_URL || null,
+    // 连接池配置
+    pool: {
+      max: parseInt(process.env.DB_POOL_MAX) || 20,
+      idleTimeoutMs: parseInt(process.env.DB_POOL_IDLE_TIMEOUT) || 30000,
+      connectionTimeoutMs: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT) || 2000
+    }
+  },
+
   // 📊 Redis配置
   redis: {
     host: process.env.REDIS_HOST || '127.0.0.1',

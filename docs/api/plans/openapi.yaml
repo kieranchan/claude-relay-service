@@ -1,0 +1,610 @@
+openapi: 3.0.3
+info:
+  title: 套餐管理 API
+  description: |
+    套餐管理系统 API，提供套餐的查询、创建、更新、删除等功能。
+
+    ## 认证
+    - 公开接口无需认证
+    - 管理员接口需要 Bearer Token 认证
+
+    ## 错误码
+    - `VALIDATION_ERROR`: 参数验证失败
+    - `PLAN_NOT_FOUND`: 套餐不存在
+    - `PLAN_EXISTS`: 套餐ID已存在
+    - `CANNOT_MODIFY`: 不能修改（有活跃订阅）
+    - `HAS_ACTIVE_SUBSCRIBERS`: 有活跃订阅
+    - `INTERNAL_ERROR`: 服务器内部错误
+  version: 1.0.0
+  contact:
+    name: Claude Relay Service
+servers:
+  - url: http://localhost:3000
+    description: 本地开发环境
+
+tags:
+  - name: Plans
+    description: 套餐管理（公开）
+  - name: Admin Plans
+    description: 套餐管理（管理员）
+
+paths:
+  /api/v1/plans:
+    get:
+      tags:
+        - Plans
+      summary: 获取套餐列表
+      description: 获取所有活跃的套餐列表
+      parameters:
+        - name: billing_cycle
+          in: query
+          description: 计费周期筛选
+          schema:
+            type: string
+            enum: [monthly, yearly, lifetime]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Plan'
+                  meta:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        example: 5
+
+  /api/v1/plans/{id}:
+    get:
+      tags:
+        - Plans
+      summary: 获取套餐详情
+      description: 根据 ID 获取套餐详情
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 套餐 ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/PlanDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/plans/admin/list:
+    get:
+      tags:
+        - Admin Plans
+      summary: 管理员获取套餐列表
+      description: 获取所有套餐（包括下架的）
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: 状态筛选
+          schema:
+            type: string
+            enum: [active, inactive, archived, all]
+            default: all
+        - name: billing_cycle
+          in: query
+          description: 计费周期筛选
+          schema:
+            type: string
+            enum: [monthly, yearly, lifetime]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Plan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/plans/admin:
+    post:
+      tags:
+        - Admin Plans
+      summary: 创建套餐
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlanRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Plan'
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: 套餐ID已存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/plans/admin/{id}:
+    put:
+      tags:
+        - Admin Plans
+      summary: 更新套餐
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePlanRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Plan'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Admin Plans
+      summary: 删除套餐
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: force
+          in: query
+          description: 强制删除（即使有活跃订阅）
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          description: 有活跃订阅，无法删除
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/plans/admin/{id}/toggle:
+    post:
+      tags:
+        - Admin Plans
+      summary: 上下架套餐
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [active, inactive]
+      responses:
+        '200':
+          description: 状态更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Plan'
+                  message:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/plans/admin/{id}/stats:
+    get:
+      tags:
+        - Admin Plans
+      summary: 获取套餐统计
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/PlanStats'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Plan:
+      type: object
+      properties:
+        id:
+          type: string
+          example: pro_monthly
+        name:
+          type: string
+          example: 专业版
+        description:
+          type: string
+        type:
+          type: string
+          enum: [subscription, one-time]
+        price:
+          type: number
+          example: 99.00
+        original_price:
+          type: number
+          nullable: true
+        currency:
+          type: string
+          example: CNY
+        billing_cycle:
+          type: string
+          enum: [monthly, yearly, lifetime]
+        features:
+          $ref: '#/components/schemas/PlanFeatures'
+        sort_order:
+          type: integer
+        is_popular:
+          type: boolean
+        is_recommended:
+          type: boolean
+        badge_text:
+          type: string
+          nullable: true
+        badge_color:
+          type: string
+          nullable: true
+        trial_days:
+          type: integer
+        discount:
+          type: object
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive, archived]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    PlanDetail:
+      allOf:
+        - $ref: '#/components/schemas/Plan'
+        - type: object
+          properties:
+            feature_highlights:
+              type: array
+              items:
+                type: string
+              example:
+                - 每日 300 次请求
+                - 每月 5M Token
+                - 支持 Claude Code、Gemini CLI
+                - API 访问
+                - 优先队列
+
+    PlanFeatures:
+      type: object
+      properties:
+        quota:
+          type: object
+          properties:
+            daily_requests:
+              type: integer
+              example: 300
+            monthly_tokens:
+              type: integer
+              example: 5000000
+            concurrent_requests:
+              type: integer
+              example: 5
+            quota_reset:
+              type: string
+              example: daily
+        services:
+          type: object
+          properties:
+            claude_code:
+              type: boolean
+            gemini_cli:
+              type: boolean
+            codex:
+              type: boolean
+            droid:
+              type: boolean
+        models:
+          type: object
+          properties:
+            allowed:
+              type: array
+              items:
+                type: string
+            default:
+              type: string
+        api:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            max_keys:
+              type: integer
+            key_rate_limit:
+              type: integer
+        advanced:
+          type: object
+          properties:
+            priority_queue:
+              type: boolean
+            custom_proxy:
+              type: boolean
+            team_sharing:
+              type: boolean
+            data_export:
+              type: boolean
+
+    PlanStats:
+      type: object
+      properties:
+        planId:
+          type: string
+        planName:
+          type: string
+        totalSubscriptions:
+          type: integer
+        activeSubscriptions:
+          type: integer
+        totalOrders:
+          type: integer
+        paidOrders:
+          type: integer
+        totalRevenue:
+          type: string
+          example: "9900.00"
+        currency:
+          type: string
+
+    CreatePlanRequest:
+      type: object
+      required:
+        - id
+        - name
+        - type
+        - price
+        - features
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9_]+$'
+          example: pro_monthly
+        name:
+          type: string
+          example: 专业版
+        description:
+          type: string
+        type:
+          type: string
+          enum: [subscription, one-time]
+        price:
+          type: number
+          minimum: 0
+        original_price:
+          type: number
+        currency:
+          type: string
+          default: CNY
+        billing_cycle:
+          type: string
+          enum: [monthly, yearly, lifetime]
+        features:
+          $ref: '#/components/schemas/PlanFeatures'
+        sort_order:
+          type: integer
+          default: 0
+        is_popular:
+          type: boolean
+          default: false
+        is_recommended:
+          type: boolean
+          default: false
+        badge_text:
+          type: string
+        badge_color:
+          type: string
+        trial_days:
+          type: integer
+          minimum: 0
+          default: 0
+        discount:
+          type: object
+        status:
+          type: string
+          enum: [active, inactive]
+          default: active
+
+    UpdatePlanRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+          minimum: 0
+        original_price:
+          type: number
+        currency:
+          type: string
+        billing_cycle:
+          type: string
+          enum: [monthly, yearly, lifetime]
+        features:
+          $ref: '#/components/schemas/PlanFeatures'
+        sort_order:
+          type: integer
+        is_popular:
+          type: boolean
+        is_recommended:
+          type: boolean
+        badge_text:
+          type: string
+        badge_color:
+          type: string
+        trial_days:
+          type: integer
+          minimum: 0
+        discount:
+          type: object
+        status:
+          type: string
+          enum: [active, inactive]
+
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+
+  responses:
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            error:
+              code: PLAN_NOT_FOUND
+              message: 套餐不存在
+
+    ValidationError:
+      description: 参数验证失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: 未授权
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

@@ -1,0 +1,182 @@
+// Prisma Schema for Claude Relay Service
+// PostgreSQL + Redis 混合架构
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================
+// 套餐管理系统
+// ========================================
+
+/// 套餐表 - 管理不同价格档位的订阅套餐
+model Plan {
+  id              String   @id @db.VarChar(50)
+  name            String   @db.VarChar(100)
+  description     String?  @db.Text
+  type            String   @db.VarChar(20) // subscription | one-time
+
+  // 价格信息
+  price           Decimal  @db.Decimal(10, 2)
+  originalPrice   Decimal? @map("original_price") @db.Decimal(10, 2)
+  currency        String   @default("CNY") @db.VarChar(3)
+  billingCycle    String?  @map("billing_cycle") @db.VarChar(20) // monthly | yearly | lifetime
+
+  // 功能配置 (JSONB)
+  features        Json     @default("{}")
+
+  // 显示配置
+  sortOrder       Int      @default(0) @map("sort_order")
+  isPopular       Boolean  @default(false) @map("is_popular")
+  isRecommended   Boolean  @default(false) @map("is_recommended")
+  badgeText       String?  @map("badge_text") @db.VarChar(50)
+  badgeColor      String?  @map("badge_color") @db.VarChar(20)
+
+  // 试用和优惠
+  trialDays       Int      @default(0) @map("trial_days")
+  discount        Json?    // 优惠配置
+
+  // 状态
+  status          String   @default("active") @db.VarChar(20) // active | inactive | archived
+
+  // 统计信息
+  subscribersCount Int     @default(0) @map("subscribers_count")
+  totalRevenue    Decimal  @default(0) @map("total_revenue") @db.Decimal(12, 2)
+
+  // 时间戳
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // 关联
+  subscriptions   Subscription[]
+  orders          Order[]
+
+  @@index([status])
+  @@index([sortOrder], map: "idx_sort_order")
+  @@index([billingCycle], map: "idx_billing_cycle")
+  @@map("plans")
+}
+
+// ========================================
+// 用户系统 (为未来迁移准备)
+// ========================================
+
+/// 用户表 - 存储用户账户信息
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  email           String   @unique @db.VarChar(255)
+  passwordHash    String   @map("password_hash") @db.VarChar(255)
+  emailVerified   Boolean  @default(false) @map("email_verified")
+  status          String   @default("active") @db.VarChar(20) // active | suspended | deleted
+  role            String   @default("user") @db.VarChar(20) // user | admin
+
+  // 邀请信息
+  referralCode    String?  @unique @map("referral_code") @db.VarChar(50)
+  invitedById     String?  @map("invited_by") @db.Uuid
+  invitedBy       User?    @relation("UserInvites", fields: [invitedById], references: [id])
+  invitedUsers    User[]   @relation("UserInvites")
+
+  // 时间戳
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  lastLoginAt     DateTime? @map("last_login_at")
+
+  // 关联
+  subscriptions   Subscription[]
+  orders          Order[]
+
+  @@index([email])
+  @@index([referralCode], map: "idx_referral_code")
+  @@index([createdAt], map: "idx_user_created_at")
+  @@map("users")
+}
+
+// ========================================
+// 订阅系统
+// ========================================
+
+/// 订阅表 - 用户的套餐订阅记录
+model Subscription {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  planId          String   @map("plan_id") @db.VarChar(50)
+
+  // 套餐快照 (防止套餐变更影响已有订阅)
+  planSnapshot    Json     @map("plan_snapshot")
+
+  // 状态
+  status          String   @default("active") @db.VarChar(20) // active | expired | cancelled | suspended
+
+  // 时间信息
+  startDate       DateTime @map("start_date") @db.Date
+  expireDate      DateTime @map("expire_date") @db.Date
+  nextBillingDate DateTime? @map("next_billing_date") @db.Date
+  cancelledAt     DateTime? @map("cancelled_at")
+
+  // 自动续费
+  autoRenew       Boolean  @default(true) @map("auto_renew")
+  autoRenewFailedCount Int @default(0) @map("auto_renew_failed_count")
+
+  // 时间戳
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // 关联
+  user            User     @relation(fields: [userId], references: [id])
+  plan            Plan     @relation(fields: [planId], references: [id])
+
+  @@index([userId], map: "idx_subscription_user_id")
+  @@index([status], map: "idx_subscription_status")
+  @@index([expireDate], map: "idx_expire_date")
+  @@map("subscriptions")
+}
+
+// ========================================
+// 订单系统
+// ========================================
+
+/// 订单表 - 用户购买套餐的订单记录
+model Order {
+  id              String   @id @db.VarChar(50)
+  userId          String   @map("user_id") @db.Uuid
+  planId          String   @map("plan_id") @db.VarChar(50)
+
+  // 金额信息
+  originalPrice   Decimal  @map("original_price") @db.Decimal(10, 2)
+  discountAmount  Decimal  @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  finalPrice      Decimal  @map("final_price") @db.Decimal(10, 2)
+  currency        String   @default("CNY") @db.VarChar(3)
+
+  // 优惠信息
+  couponCode      String?  @map("coupon_code") @db.VarChar(50)
+  inviteDiscount  Decimal  @default(0) @map("invite_discount") @db.Decimal(10, 2)
+
+  // 订单状态
+  status          String   @default("pending") @db.VarChar(20) // pending | paid | cancelled | expired | refunded
+  paymentMethod   String?  @map("payment_method") @db.VarChar(20) // alipay | wechat | stripe
+  paymentStatus   String   @default("pending") @map("payment_status") @db.VarChar(20)
+
+  // 支付信息
+  paymentInfo     Json?    @map("payment_info")
+
+  // 时间信息
+  createdAt       DateTime @default(now()) @map("created_at")
+  paidAt          DateTime? @map("paid_at")
+  cancelledAt     DateTime? @map("cancelled_at")
+  expireAt        DateTime? @map("expire_at") // 订单过期时间 (15分钟)
+
+  // 关联
+  user            User     @relation(fields: [userId], references: [id])
+  plan            Plan     @relation(fields: [planId], references: [id])
+
+  @@index([userId], map: "idx_order_user_id")
+  @@index([status], map: "idx_order_status")
+  @@index([createdAt], map: "idx_order_created_at")
+  @@index([expireAt], map: "idx_order_expire_at")
+  @@map("orders")
+}

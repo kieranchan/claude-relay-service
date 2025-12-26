@@ -29,6 +29,7 @@ const azureOpenaiRoutes = require('./routes/azureOpenaiRoutes')
 const webhookRoutes = require('./routes/webhook')
 const emailAuthRoutes = require('./routes/emailAuthRoutes')
 const emailUserRoutes = require('./routes/emailUserRoutes')
+const planRoutes = require('./routes/planRoutes')
 
 // Import middleware
 const {
@@ -53,6 +54,18 @@ class Application {
       logger.info('🔄 Connecting to Redis...')
       await redis.connect()
       logger.success('✅ Redis connected successfully')
+
+      // 🗄️ 连接PostgreSQL（可选，用于套餐管理等功能）
+      if (config.database && config.database.url) {
+        logger.info('🔄 Connecting to PostgreSQL...')
+        const { connectDatabase } = require('./models/prisma')
+        const dbConnected = await connectDatabase()
+        if (dbConnected) {
+          logger.success('✅ PostgreSQL connected successfully')
+        } else {
+          logger.warn('⚠️ PostgreSQL connection failed, some features may be unavailable')
+        }
+      }
 
       // 💰 初始化价格服务
       logger.info('🔄 Initializing pricing service...')
@@ -289,6 +302,8 @@ class Application {
       // 📧 邮箱认证路由（独立于LDAP用户系统）
       this.app.use('/api/v1/auth', emailAuthRoutes)
       this.app.use('/api/v1/user', emailUserRoutes)
+      // 📦 套餐管理路由
+      this.app.use('/api/v1/plans', planRoutes)
 
       // 📧 邮箱验证页面（处理邮件中的验证链接）
       this.app.get('/verify-email', async (req, res) => {
