@@ -104,6 +104,26 @@ class EmailAuthService {
     // 创建用户
     const user = await emailUserService.createUser({ email, password })
 
+    // 检查是否需要邮箱验证
+    const skipEmailVerification =
+      process.env.SKIP_EMAIL_VERIFICATION === 'true' || !emailService.isConfigured
+
+    if (skipEmailVerification) {
+      // 开发模式或SMTP未配置：自动验证邮箱
+      await emailUserService.verifyEmail(user.id)
+      logger.info(`📧 User registered (auto-verified): ${email} (${user.id})`)
+
+      return {
+        success: true,
+        message: '注册成功',
+        data: {
+          userId: user.id,
+          email: user.email,
+          emailVerified: true
+        }
+      }
+    }
+
     // 创建邮箱验证 Token
     const verifyToken = await emailService.createVerificationToken(user.id, email)
 

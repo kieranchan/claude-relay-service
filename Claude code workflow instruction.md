@@ -203,11 +203,58 @@ npm run test:check-coverage
 ## 📋 阶段 6：文档与安全
 
 ### 任务清单
-- [ ] 生成/更新 API 文档（Swagger/OpenAPI）
+- [ ] **在 `docs/api/` 目录下为新功能创建独立文件夹和 OpenAPI 文档**
+- [ ] 更新 `docs/api/README.md` 的功能模块列表
 - [ ] 更新数据库文档（数据字典）
 - [ ] 更新 CHANGELOG.md
 - [ ] 安全检查（SQL注入、XSS、权限）
 - [ ] 敏感数据加密检查
+
+> **API 文档规范**：详见下方「API 文档创建流程」
+
+### API 文档创建流程
+
+每个新功能模块必须创建独立的 API 文档文件夹：
+
+```
+docs/api/
+├── README.md                    # 主索引（需更新功能列表）
+├── email-auth/                  # 功能模块文件夹
+│   ├── openapi.yaml            # OpenAPI 3.0 规范（必需）
+│   └── README.md               # 模块说明（环境变量、示例等）
+├── webhook/                     # 另一个功能模块
+│   ├── openapi.yaml
+│   └── README.md
+└── ...
+```
+
+**创建步骤**：
+1. 创建功能文件夹：`mkdir docs/api/<feature-name>/`
+2. 创建 `openapi.yaml`：定义 API 端点、请求/响应 Schema、错误码
+3. 创建 `README.md`：补充环境变量配置、使用示例等
+4. 更新 `docs/api/README.md`：在功能模块列表中添加新模块
+
+**OpenAPI 文件基本结构**：
+```yaml
+openapi: 3.0.3
+info:
+  title: 功能名称 API
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+tags:
+  - name: TagName
+    description: 标签说明
+paths:
+  /api/v1/xxx:
+    post:
+      tags: [TagName]
+      summary: 接口说明
+      # ...
+components:
+  schemas:
+    # 数据模型定义
+```
 
 ### 安全检查清单
 ```

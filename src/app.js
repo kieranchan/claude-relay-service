@@ -290,6 +290,25 @@ class Application {
       this.app.use('/api/v1/auth', emailAuthRoutes)
       this.app.use('/api/v1/user', emailUserRoutes)
 
+      // 📧 邮箱验证页面（处理邮件中的验证链接）
+      this.app.get('/verify-email', async (req, res) => {
+        const { token } = req.query
+        const { emailAuthService } = require('./services/emailAuth')
+
+        if (!token) {
+          return res.send(this.renderVerifyPage(false, '缺少验证令牌'))
+        }
+
+        try {
+          await emailAuthService.verifyEmail(token)
+          res.send(this.renderVerifyPage(true, '邮箱验证成功！您现在可以登录了。'))
+        } catch (error) {
+          const message =
+            error.code === 'AUTH_TOKEN_INVALID' ? '验证链接无效或已过期' : '验证失败，请重试'
+          res.send(this.renderVerifyPage(false, message))
+        }
+      })
+
       // 🏠 根路径重定向到新版管理界面
       this.app.get('/', (req, res) => {
         res.redirect('/admin-next/api-stats')
@@ -481,6 +500,38 @@ class Application {
       // 清理失败不应阻止服务启动
       logger.error('❌ Failed to cleanup invalid sessions:', error.message)
     }
+  }
+
+  // 📧 渲染邮箱验证结果页面
+  renderVerifyPage(success, message) {
+    const icon = success ? '✅' : '❌'
+    const color = success ? '#10b981' : '#ef4444'
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>邮箱验证 - Claude Relay Service</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+           display: flex; justify-content: center; align-items: center; min-height: 100vh;
+           margin: 0; background: #f3f4f6; }
+    .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center; max-width: 400px; }
+    .icon { font-size: 48px; margin-bottom: 20px; }
+    .message { color: ${color}; font-size: 18px; font-weight: 500; }
+    .hint { color: #6b7280; margin-top: 20px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${icon}</div>
+    <div class="message">${message}</div>
+    <div class="hint">${success ? '您可以关闭此页面' : '请检查链接是否正确或重新请求验证邮件'}</div>
+  </div>
+</body>
+</html>`
   }
 
   // 🔍 Redis健康检查
