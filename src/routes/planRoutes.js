@@ -5,7 +5,7 @@
 
 const express = require('express')
 const { body, param, query, validationResult } = require('express-validator')
-const planService = require('../services/planService')
+const { planService, planStatsService } = require('../services/plans')
 const { authenticateAdmin } = require('../middleware/auth')
 const logger = require('../utils/logger')
 
@@ -483,7 +483,7 @@ router.get(
         })
       }
 
-      const stats = await planService.getPlanStats(req.params.id)
+      const stats = await planStatsService.getPlanStats(req.params.id)
 
       res.json({
         success: true,

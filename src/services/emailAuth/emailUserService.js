@@ -2,31 +2,18 @@
  * 邮箱用户服务
  * 处理邮箱登录用户的 CRUD 操作
  * 与现有 LDAP 用户系统完全独立
+ *
+ * 数据存储：PostgreSQL (via Prisma)
  */
 
-const redis = require('../../models/redis')
+const { prisma } = require('../../models/prisma')
 const bcrypt = require('bcryptjs')
-const crypto = require('crypto')
 const logger = require('../../utils/logger')
-
-// Redis Key 前缀
-const KEYS = {
-  USER: 'email_user:',
-  EMAIL_TO_ID: 'email_to_userid:',
-  USER_API_KEYS: 'email_user_api_keys:'
-}
 
 // 密码加密强度
 const SALT_ROUNDS = 10
 
 class EmailUserService {
-  /**
-   * 生成用户 ID
-   */
-  generateUserId() {
-    return crypto.randomUUID()
-  }
-
   /**
    * 通过邮箱获取用户 ID
    * @param {string} email
@@ -34,8 +21,11 @@ class EmailUserService {
    */
   async getUserIdByEmail(email) {
     const normalizedEmail = email.toLowerCase().trim()
-    const userId = await redis.get(`${KEYS.EMAIL_TO_ID}${normalizedEmail}`)
-    return userId || null
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true }
+    })
+    return user?.id || null
   }
 
   /**
@@ -44,15 +34,19 @@ class EmailUserService {
    * @returns {Promise<Object|null>}
    */
   async getUserById(userId) {
-    const userData = await redis.get(`${KEYS.USER}${userId}`)
-    if (!userData) {
-      return null
-    }
-
     try {
-      return JSON.parse(userData)
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      })
+
+      if (!user) {
+        return null
+      }
+
+      // 转换为旧格式以保持兼容性
+      return this._toLegacyFormat(user)
     } catch (error) {
-      logger.error('Failed to parse user data:', error)
+      logger.error('Failed to get user by id:', error)
       return null
     }
   }
@@ -63,11 +57,21 @@ class EmailUserService {
    * @returns {Promise<Object|null>}
    */
   async getUserByEmail(email) {
-    const userId = await this.getUserIdByEmail(email)
-    if (!userId) {
+    const normalizedEmail = email.toLowerCase().trim()
+    try {
+      const user = await prisma.user.findUnique({
+        where: { email: normalizedEmail }
+      })
+
+      if (!user) {
+        return null
+      }
+
+      return this._toLegacyFormat(user)
+    } catch (error) {
+      logger.error('Failed to get user by email:', error)
       return null
     }
-    return this.getUserById(userId)
   }
 
   /**
@@ -76,8 +80,11 @@ class EmailUserService {
    * @returns {Promise<boolean>}
    */
   async isEmailRegistered(email) {
-    const userId = await this.getUserIdByEmail(email)
-    return !!userId
+    const normalizedEmail = email.toLowerCase().trim()
+    const count = await prisma.user.count({
+      where: { email: normalizedEmail }
+    })
+    return count > 0
   }
 
   /**
@@ -95,39 +102,25 @@ class EmailUserService {
       throw error
     }
 
-    // 生成用户 ID 和密码哈希
-    const userId = this.generateUserId()
+    // 生成密码哈希
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS)
-    const now = new Date().toISOString()
 
-    // 创建用户对象
-    const user = {
-      id: userId,
-      email: normalizedEmail,
-      password_hash: passwordHash,
-      email_verified: false,
-      status: 'pending', // pending -> active (after email verification)
-      role: 'user',
-      created_at: now,
-      updated_at: now,
-      last_login_at: null,
-      login_count: 0
-    }
+    // 创建用户
+    const user = await prisma.user.create({
+      data: {
+        email: normalizedEmail,
+        passwordHash,
+        emailVerified: false,
+        status: 'pending', // pending -> active (after email verification)
+        role: 'user',
+        loginCount: 0
+      }
+    })
 
-    // 使用 Pipeline 确保原子性
-    const client = redis.getClientSafe()
-    const pipeline = client.pipeline()
-
-    pipeline.set(`${KEYS.USER}${userId}`, JSON.stringify(user))
-    pipeline.set(`${KEYS.EMAIL_TO_ID}${normalizedEmail}`, userId)
-
-    await pipeline.exec()
-
-    logger.info(`📧 Created email user: ${normalizedEmail} (${userId})`)
+    logger.info(`📧 Created email user: ${normalizedEmail} (${user.id})`)
 
     // 返回用户信息（不包含密码哈希）
-    const { password_hash: _, ...safeUser } = user
-    return safeUser
+    return this._toSafeUser(this._toLegacyFormat(user))
   }
 
   /**
@@ -137,12 +130,16 @@ class EmailUserService {
    * @returns {Promise<boolean>}
    */
   async verifyPassword(userId, password) {
-    const user = await this.getUserById(userId)
-    if (!user || !user.password_hash) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { passwordHash: true }
+    })
+
+    if (!user || !user.passwordHash) {
       return false
     }
 
-    return bcrypt.compare(password, user.password_hash)
+    return bcrypt.compare(password, user.passwordHash)
   }
 
   /**
@@ -151,19 +148,21 @@ class EmailUserService {
    * @returns {Promise<boolean>}
    */
   async verifyEmail(userId) {
-    const user = await this.getUserById(userId)
-    if (!user) {
+    try {
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          emailVerified: true,
+          status: 'active'
+        }
+      })
+
+      logger.info(`✅ Email verified for user: ${user.email} (${userId})`)
+      return true
+    } catch (error) {
+      logger.error('Failed to verify email:', error)
       return false
     }
-
-    user.email_verified = true
-    user.status = 'active'
-    user.updated_at = new Date().toISOString()
-
-    await redis.set(`${KEYS.USER}${userId}`, JSON.stringify(user))
-    logger.info(`✅ Email verified for user: ${user.email} (${userId})`)
-
-    return true
   }
 
   /**
@@ -171,16 +170,17 @@ class EmailUserService {
    * @param {string} userId
    */
   async updateLastLogin(userId) {
-    const user = await this.getUserById(userId)
-    if (!user) {
-      return
+    try {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          lastLoginAt: new Date(),
+          loginCount: { increment: 1 }
+        }
+      })
+    } catch (error) {
+      logger.error('Failed to update last login:', error)
     }
-
-    user.last_login_at = new Date().toISOString()
-    user.login_count = (user.login_count || 0) + 1
-    user.updated_at = new Date().toISOString()
-
-    await redis.set(`${KEYS.USER}${userId}`, JSON.stringify(user))
   }
 
   /**
@@ -190,18 +190,20 @@ class EmailUserService {
    * @returns {Promise<boolean>}
    */
   async updatePassword(userId, newPassword) {
-    const user = await this.getUserById(userId)
-    if (!user) {
+    try {
+      const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS)
+
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash }
+      })
+
+      logger.info(`🔐 Password updated for user: ${user.email} (${userId})`)
+      return true
+    } catch (error) {
+      logger.error('Failed to update password:', error)
       return false
     }
-
-    user.password_hash = await bcrypt.hash(newPassword, SALT_ROUNDS)
-    user.updated_at = new Date().toISOString()
-
-    await redis.set(`${KEYS.USER}${userId}`, JSON.stringify(user))
-    logger.info(`🔐 Password updated for user: ${user.email} (${userId})`)
-
-    return true
   }
 
   /**
@@ -211,18 +213,18 @@ class EmailUserService {
    * @returns {Promise<boolean>}
    */
   async updateStatus(userId, status) {
-    const user = await this.getUserById(userId)
-    if (!user) {
+    try {
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data: { status }
+      })
+
+      logger.info(`🔄 Status updated for user: ${user.email} -> ${status}`)
+      return true
+    } catch (error) {
+      logger.error('Failed to update status:', error)
       return false
     }
-
-    user.status = status
-    user.updated_at = new Date().toISOString()
-
-    await redis.set(`${KEYS.USER}${userId}`, JSON.stringify(user))
-    logger.info(`🔄 Status updated for user: ${user.email} -> ${status}`)
-
-    return true
   }
 
   /**
@@ -236,8 +238,7 @@ class EmailUserService {
       return null
     }
 
-    const { password_hash: _, ...safeUser } = user
-    return safeUser
+    return this._toSafeUser(user)
   }
 
   /**
@@ -247,42 +248,33 @@ class EmailUserService {
    */
   async getAllUsers(options = {}) {
     const { page = 1, limit = 20, status } = options
-    const client = redis.getClientSafe()
 
-    // 获取所有用户 Key
-    const keys = await client.keys(`${KEYS.USER}*`)
-    const users = []
-
-    for (const key of keys) {
-      const userData = await client.get(key)
-      if (userData) {
-        try {
-          const user = JSON.parse(userData)
-          // 过滤状态
-          if (status && user.status !== status) {
-            continue
-          }
-
-          // 移除敏感信息
-          const { password_hash: _, ...safeUser } = user
-          users.push(safeUser)
-        } catch (error) {
-          logger.error(`Failed to parse user data for key ${key}:`, error)
-        }
-      }
+    // 构建查询条件
+    const where = {}
+    if (status) {
+      where.status = status
     }
 
-    // 排序和分页
-    users.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    const startIndex = (page - 1) * limit
-    const paginatedUsers = users.slice(startIndex, startIndex + limit)
+    // 获取总数
+    const total = await prisma.user.count({ where })
+
+    // 获取分页数据
+    const users = await prisma.user.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit
+    })
+
+    // 转换为安全格式
+    const safeUsers = users.map((user) => this._toSafeUser(this._toLegacyFormat(user)))
 
     return {
-      users: paginatedUsers,
-      total: users.length,
+      users: safeUsers,
+      total,
       page,
       limit,
-      totalPages: Math.ceil(users.length / limit)
+      totalPages: Math.ceil(total / limit)
     }
   }
 
@@ -292,8 +284,14 @@ class EmailUserService {
    * @param {string} apiKeyId
    */
   async addApiKeyToUser(userId, apiKeyId) {
-    const client = redis.getClientSafe()
-    await client.sadd(`${KEYS.USER_API_KEYS}${userId}`, apiKeyId)
+    try {
+      await prisma.apiKey.update({
+        where: { id: apiKeyId },
+        data: { userId }
+      })
+    } catch (error) {
+      logger.error('Failed to add API key to user:', error)
+    }
   }
 
   /**
@@ -302,8 +300,14 @@ class EmailUserService {
    * @param {string} apiKeyId
    */
   async removeApiKeyFromUser(userId, apiKeyId) {
-    const client = redis.getClientSafe()
-    await client.srem(`${KEYS.USER_API_KEYS}${userId}`, apiKeyId)
+    try {
+      await prisma.apiKey.update({
+        where: { id: apiKeyId },
+        data: { userId: null }
+      })
+    } catch (error) {
+      logger.error('Failed to remove API key from user:', error)
+    }
   }
 
   /**
@@ -312,8 +316,11 @@ class EmailUserService {
    * @returns {Promise<string[]>}
    */
   async getUserApiKeyIds(userId) {
-    const client = redis.getClientSafe()
-    return client.smembers(`${KEYS.USER_API_KEYS}${userId}`)
+    const apiKeys = await prisma.apiKey.findMany({
+      where: { userId },
+      select: { id: true }
+    })
+    return apiKeys.map((key) => key.id)
   }
 
   /**
@@ -322,8 +329,39 @@ class EmailUserService {
    * @returns {Promise<number>}
    */
   async getUserApiKeyCount(userId) {
-    const client = redis.getClientSafe()
-    return client.scard(`${KEYS.USER_API_KEYS}${userId}`)
+    return prisma.apiKey.count({
+      where: { userId }
+    })
+  }
+
+  /**
+   * 将 Prisma User 转换为旧格式（兼容性）
+   * @private
+   */
+  _toLegacyFormat(user) {
+    return {
+      id: user.id,
+      email: user.email,
+      password_hash: user.passwordHash,
+      email_verified: user.emailVerified,
+      status: user.status,
+      role: user.role,
+      referral_code: user.referralCode,
+      invited_by: user.invitedById,
+      created_at: user.createdAt?.toISOString() || null,
+      updated_at: user.updatedAt?.toISOString() || null,
+      last_login_at: user.lastLoginAt?.toISOString() || null,
+      login_count: user.loginCount
+    }
+  }
+
+  /**
+   * 移除敏感信息
+   * @private
+   */
+  _toSafeUser(user) {
+    const { password_hash: _, ...safeUser } = user
+    return safeUser
   }
 }
 

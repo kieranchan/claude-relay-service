@@ -1,8 +1,8 @@
 const crypto = require('crypto')
-const { v4: uuidv4 } = require('uuid')
 const config = require('../../config/config')
 const redis = require('../models/redis')
 const logger = require('../utils/logger')
+const { prisma } = require('../models/prisma')
 
 const ACCOUNT_TYPE_CONFIG = {
   claude: { prefix: 'claude:account:' },
@@ -111,98 +111,103 @@ class ApiKeyService {
 
     // 生成简单的API Key (64字符十六进制)
     const apiKey = `${this.prefix}${this._generateSecretKey()}`
-    const keyId = uuidv4()
     const hashedKey = this._hashApiKey(apiKey)
 
-    const keyData = {
-      id: keyId,
-      name,
-      description,
-      apiKey: hashedKey,
-      tokenLimit: String(tokenLimit ?? 0),
-      concurrencyLimit: String(concurrencyLimit ?? 0),
-      rateLimitWindow: String(rateLimitWindow ?? 0),
-      rateLimitRequests: String(rateLimitRequests ?? 0),
-      rateLimitCost: String(rateLimitCost ?? 0), // 新增：速率限制费用字段
-      isActive: String(isActive),
-      claudeAccountId: claudeAccountId || '',
-      claudeConsoleAccountId: claudeConsoleAccountId || '',
-      geminiAccountId: geminiAccountId || '',
-      openaiAccountId: openaiAccountId || '',
-      azureOpenaiAccountId: azureOpenaiAccountId || '',
-      bedrockAccountId: bedrockAccountId || '', // 添加 Bedrock 账号ID
-      droidAccountId: droidAccountId || '',
-      permissions: permissions || 'all',
-      enableModelRestriction: String(enableModelRestriction),
-      restrictedModels: JSON.stringify(restrictedModels || []),
-      enableClientRestriction: String(enableClientRestriction || false),
-      allowedClients: JSON.stringify(allowedClients || []),
-      dailyCostLimit: String(dailyCostLimit || 0),
-      totalCostLimit: String(totalCostLimit || 0),
-      weeklyOpusCostLimit: String(weeklyOpusCostLimit || 0),
-      tags: JSON.stringify(tags || []),
-      activationDays: String(activationDays || 0), // 新增：激活后有效天数
-      activationUnit: activationUnit || 'days', // 新增：激活时间单位
-      expirationMode: expirationMode || 'fixed', // 新增：过期模式
-      isActivated: expirationMode === 'fixed' ? 'true' : 'false', // 根据模式决定激活状态
-      activatedAt: expirationMode === 'fixed' ? new Date().toISOString() : '', // 激活时间
-      createdAt: new Date().toISOString(),
-      lastUsedAt: '',
-      expiresAt: expirationMode === 'fixed' ? expiresAt || '' : '', // 固定模式才设置过期时间
-      createdBy: options.createdBy || 'admin',
-      userId: options.userId || '',
-      userUsername: options.userUsername || '',
-      icon: icon || '' // 新增：图标（base64编码）
-    }
+    // 使用 Prisma 创建 API Key 记录
+    const now = new Date()
+    const apiKeyRecord = await prisma.apiKey.create({
+      data: {
+        name,
+        description: description || null,
+        keyHash: hashedKey,
+        isActive,
+        isDeleted: false,
+        tokenLimit: BigInt(tokenLimit || 0),
+        concurrencyLimit: concurrencyLimit || 0,
+        rateLimitWindow: rateLimitWindow || 0,
+        rateLimitRequests: rateLimitRequests || 0,
+        rateLimitCost: rateLimitCost || 0,
+        dailyCostLimit: dailyCostLimit || 0,
+        totalCostLimit: totalCostLimit || 0,
+        weeklyOpusCostLimit: weeklyOpusCostLimit || 0,
+        permissions: permissions || 'all',
+        claudeAccountId: claudeAccountId || null,
+        claudeConsoleAccountId: claudeConsoleAccountId || null,
+        geminiAccountId: geminiAccountId || null,
+        openaiAccountId: openaiAccountId || null,
+        azureOpenaiAccountId: azureOpenaiAccountId || null,
+        bedrockAccountId: bedrockAccountId || null,
+        droidAccountId: droidAccountId || null,
+        enableModelRestriction: enableModelRestriction || false,
+        restrictedModels: restrictedModels || [],
+        enableClientRestriction: enableClientRestriction || false,
+        allowedClients: allowedClients || [],
+        tags: tags || [],
+        expirationMode: expirationMode || 'fixed',
+        expiresAt: expirationMode === 'fixed' && expiresAt ? new Date(expiresAt) : null,
+        activationDays: activationDays || 0,
+        activationUnit: activationUnit || 'days',
+        isActivated: expirationMode === 'fixed',
+        activatedAt: expirationMode === 'fixed' ? now : null,
+        icon: icon || null,
+        createdBy: options.createdBy || 'admin',
+        userId: options.userId || null,
+        userUsername: options.userUsername || null
+      }
+    })
 
-    // 保存API Key数据并建立哈希映射
-    await redis.setApiKey(keyId, keyData, hashedKey)
+    // 建立 Redis 哈希映射（用于 O(1) 查找验证）
+    await redis.setApiKeyHash(hashedKey, {
+      id: apiKeyRecord.id,
+      name: apiKeyRecord.name,
+      isActive: apiKeyRecord.isActive ? 'true' : 'false'
+    })
 
     // 同步添加到费用排序索引
     try {
       const costRankService = require('./costRankService')
-      await costRankService.addKeyToIndexes(keyId)
+      await costRankService.addKeyToIndexes(apiKeyRecord.id)
     } catch (err) {
-      logger.warn(`Failed to add key ${keyId} to cost rank indexes:`, err.message)
+      logger.warn(`Failed to add key ${apiKeyRecord.id} to cost rank indexes:`, err.message)
     }
 
-    logger.success(`🔑 Generated new API key: ${name} (${keyId})`)
+    logger.success(`🔑 Generated new API key: ${name} (${apiKeyRecord.id})`)
 
     return {
-      id: keyId,
+      id: apiKeyRecord.id,
       apiKey, // 只在创建时返回完整的key
-      name: keyData.name,
-      description: keyData.description,
-      tokenLimit: parseInt(keyData.tokenLimit),
-      concurrencyLimit: parseInt(keyData.concurrencyLimit),
-      rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
-      rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
-      rateLimitCost: parseFloat(keyData.rateLimitCost || 0), // 新增：速率限制费用字段
-      isActive: keyData.isActive === 'true',
-      claudeAccountId: keyData.claudeAccountId,
-      claudeConsoleAccountId: keyData.claudeConsoleAccountId,
-      geminiAccountId: keyData.geminiAccountId,
-      openaiAccountId: keyData.openaiAccountId,
-      azureOpenaiAccountId: keyData.azureOpenaiAccountId,
-      bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
-      droidAccountId: keyData.droidAccountId,
-      permissions: keyData.permissions,
-      enableModelRestriction: keyData.enableModelRestriction === 'true',
-      restrictedModels: JSON.parse(keyData.restrictedModels),
-      enableClientRestriction: keyData.enableClientRestriction === 'true',
-      allowedClients: JSON.parse(keyData.allowedClients || '[]'),
-      dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
-      totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
-      weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
-      tags: JSON.parse(keyData.tags || '[]'),
-      activationDays: parseInt(keyData.activationDays || 0),
-      activationUnit: keyData.activationUnit || 'days',
-      expirationMode: keyData.expirationMode || 'fixed',
-      isActivated: keyData.isActivated === 'true',
-      activatedAt: keyData.activatedAt,
-      createdAt: keyData.createdAt,
-      expiresAt: keyData.expiresAt,
-      createdBy: keyData.createdBy
+      name: apiKeyRecord.name,
+      description: apiKeyRecord.description,
+      tokenLimit: Number(apiKeyRecord.tokenLimit),
+      concurrencyLimit: apiKeyRecord.concurrencyLimit,
+      rateLimitWindow: apiKeyRecord.rateLimitWindow,
+      rateLimitRequests: apiKeyRecord.rateLimitRequests,
+      rateLimitCost: Number(apiKeyRecord.rateLimitCost),
+      isActive: apiKeyRecord.isActive,
+      claudeAccountId: apiKeyRecord.claudeAccountId,
+      claudeConsoleAccountId: apiKeyRecord.claudeConsoleAccountId,
+      geminiAccountId: apiKeyRecord.geminiAccountId,
+      openaiAccountId: apiKeyRecord.openaiAccountId,
+      azureOpenaiAccountId: apiKeyRecord.azureOpenaiAccountId,
+      bedrockAccountId: apiKeyRecord.bedrockAccountId,
+      droidAccountId: apiKeyRecord.droidAccountId,
+      permissions: apiKeyRecord.permissions,
+      enableModelRestriction: apiKeyRecord.enableModelRestriction,
+      restrictedModels: apiKeyRecord.restrictedModels,
+      enableClientRestriction: apiKeyRecord.enableClientRestriction,
+      allowedClients: apiKeyRecord.allowedClients,
+      dailyCostLimit: Number(apiKeyRecord.dailyCostLimit),
+      totalCostLimit: Number(apiKeyRecord.totalCostLimit),
+      weeklyOpusCostLimit: Number(apiKeyRecord.weeklyOpusCostLimit),
+      tags: apiKeyRecord.tags,
+      activationDays: apiKeyRecord.activationDays,
+      activationUnit: apiKeyRecord.activationUnit,
+      expirationMode: apiKeyRecord.expirationMode,
+      isActivated: apiKeyRecord.isActivated,
+      activatedAt: apiKeyRecord.activatedAt?.toISOString() || null,
+      createdAt: apiKeyRecord.createdAt.toISOString(),
+      expiresAt: apiKeyRecord.expiresAt?.toISOString() || null,
+      createdBy: apiKeyRecord.createdBy
     }
   }
 
@@ -216,28 +221,32 @@ class ApiKeyService {
       // 计算API Key的哈希值
       const hashedKey = this._hashApiKey(apiKey)
 
-      // 通过哈希值直接查找API Key（性能优化）
-      const keyData = await redis.findApiKeyByHash(hashedKey)
+      // 从 PostgreSQL 通过哈希值查找 API Key
+      const keyRecord = await prisma.apiKey.findUnique({
+        where: { keyHash: hashedKey }
+      })
 
-      if (!keyData) {
-        // ⚠️ 警告：映射表查找失败，可能是竞态条件或映射表损坏
-        logger.warn(
-          `⚠️ API key not found in hash map: ${hashedKey.substring(0, 16)}... (possible race condition or corrupted hash map)`
-        )
+      if (!keyRecord) {
+        logger.warn(`⚠️ API key not found: ${hashedKey.substring(0, 16)}...`)
         return { valid: false, error: 'API key not found' }
       }
 
+      // 检查是否已删除
+      if (keyRecord.isDeleted) {
+        return { valid: false, error: 'API key has been deleted' }
+      }
+
       // 检查是否激活
-      if (keyData.isActive !== 'true') {
+      if (!keyRecord.isActive) {
         return { valid: false, error: 'API key is disabled' }
       }
 
       // 处理激活逻辑（仅在 activation 模式下）
-      if (keyData.expirationMode === 'activation' && keyData.isActivated !== 'true') {
+      if (keyRecord.expirationMode === 'activation' && !keyRecord.isActivated) {
         // 首次使用，需要激活
         const now = new Date()
-        const activationPeriod = parseInt(keyData.activationDays || 30) // 默认30
-        const activationUnit = keyData.activationUnit || 'days' // 默认天
+        const activationPeriod = keyRecord.activationDays || 30 // 默认30
+        const activationUnit = keyRecord.activationUnit || 'days' // 默认天
 
         // 根据单位计算过期时间
         let milliseconds
@@ -249,32 +258,39 @@ class ApiKeyService {
 
         const expiresAt = new Date(now.getTime() + milliseconds)
 
-        // 更新激活状态和过期时间
-        keyData.isActivated = 'true'
-        keyData.activatedAt = now.toISOString()
-        keyData.expiresAt = expiresAt.toISOString()
-        keyData.lastUsedAt = now.toISOString()
+        // 更新激活状态和过期时间到 PostgreSQL
+        await prisma.apiKey.update({
+          where: { id: keyRecord.id },
+          data: {
+            isActivated: true,
+            activatedAt: now,
+            expiresAt,
+            lastUsedAt: now
+          }
+        })
 
-        // 保存到Redis
-        await redis.setApiKey(keyData.id, keyData)
+        // 更新本地记录
+        keyRecord.isActivated = true
+        keyRecord.activatedAt = now
+        keyRecord.expiresAt = expiresAt
 
         logger.success(
-          `🔓 API key activated: ${keyData.id} (${
-            keyData.name
+          `🔓 API key activated: ${keyRecord.id} (${
+            keyRecord.name
           }), will expire in ${activationPeriod} ${activationUnit} at ${expiresAt.toISOString()}`
         )
       }
 
       // 检查是否过期
-      if (keyData.expiresAt && new Date() > new Date(keyData.expiresAt)) {
+      if (keyRecord.expiresAt && new Date() > keyRecord.expiresAt) {
         return { valid: false, error: 'API key has expired' }
       }
 
       // 如果API Key属于某个用户，检查用户是否被禁用
-      if (keyData.userId) {
+      if (keyRecord.userId) {
         try {
           const userService = require('./userService')
-          const user = await userService.getUserById(keyData.userId, false)
+          const user = await userService.getUserById(keyRecord.userId, false)
           if (!user || !user.isActive) {
             return { valid: false, error: 'User account is disabled' }
           }
@@ -284,77 +300,50 @@ class ApiKeyService {
         }
       }
 
-      // 获取使用统计（供返回数据使用）
-      const usage = await redis.getUsageStats(keyData.id)
+      // 获取使用统计（从 Redis）
+      const usage = await redis.getUsageStats(keyRecord.id)
 
-      // 获取费用统计
+      // 获取费用统计（从 Redis）
       const [dailyCost, costStats] = await Promise.all([
-        redis.getDailyCost(keyData.id),
-        redis.getCostStats(keyData.id)
+        redis.getDailyCost(keyRecord.id),
+        redis.getCostStats(keyRecord.id)
       ])
       const totalCost = costStats?.total || 0
 
-      // 更新最后使用时间（优化：只在实际API调用时更新，而不是验证时）
-      // 注意：lastUsedAt的更新已移至recordUsage方法中
-
-      logger.api(`🔓 API key validated successfully: ${keyData.id}`)
-
-      // 解析限制模型数据
-      let restrictedModels = []
-      try {
-        restrictedModels = keyData.restrictedModels ? JSON.parse(keyData.restrictedModels) : []
-      } catch (e) {
-        restrictedModels = []
-      }
-
-      // 解析允许的客户端
-      let allowedClients = []
-      try {
-        allowedClients = keyData.allowedClients ? JSON.parse(keyData.allowedClients) : []
-      } catch (e) {
-        allowedClients = []
-      }
-
-      // 解析标签
-      let tags = []
-      try {
-        tags = keyData.tags ? JSON.parse(keyData.tags) : []
-      } catch (e) {
-        tags = []
-      }
+      logger.api(`🔓 API key validated successfully: ${keyRecord.id}`)
 
       return {
         valid: true,
         keyData: {
-          id: keyData.id,
-          name: keyData.name,
-          description: keyData.description,
-          createdAt: keyData.createdAt,
-          expiresAt: keyData.expiresAt,
-          claudeAccountId: keyData.claudeAccountId,
-          claudeConsoleAccountId: keyData.claudeConsoleAccountId,
-          geminiAccountId: keyData.geminiAccountId,
-          openaiAccountId: keyData.openaiAccountId,
-          azureOpenaiAccountId: keyData.azureOpenaiAccountId,
-          bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
-          droidAccountId: keyData.droidAccountId,
-          permissions: keyData.permissions || 'all',
-          tokenLimit: parseInt(keyData.tokenLimit),
-          concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
-          rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
-          rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
-          rateLimitCost: parseFloat(keyData.rateLimitCost || 0), // 新增：速率限制费用字段
-          enableModelRestriction: keyData.enableModelRestriction === 'true',
-          restrictedModels,
-          enableClientRestriction: keyData.enableClientRestriction === 'true',
-          allowedClients,
-          dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
-          totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
-          weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
+          id: keyRecord.id,
+          name: keyRecord.name,
+          description: keyRecord.description,
+          createdAt: keyRecord.createdAt?.toISOString(),
+          expiresAt: keyRecord.expiresAt?.toISOString() || null,
+          claudeAccountId: keyRecord.claudeAccountId,
+          claudeConsoleAccountId: keyRecord.claudeConsoleAccountId,
+          geminiAccountId: keyRecord.geminiAccountId,
+          openaiAccountId: keyRecord.openaiAccountId,
+          azureOpenaiAccountId: keyRecord.azureOpenaiAccountId,
+          bedrockAccountId: keyRecord.bedrockAccountId,
+          droidAccountId: keyRecord.droidAccountId,
+          permissions: keyRecord.permissions || 'all',
+          tokenLimit: Number(keyRecord.tokenLimit),
+          concurrencyLimit: keyRecord.concurrencyLimit || 0,
+          rateLimitWindow: keyRecord.rateLimitWindow || 0,
+          rateLimitRequests: keyRecord.rateLimitRequests || 0,
+          rateLimitCost: Number(keyRecord.rateLimitCost || 0),
+          enableModelRestriction: keyRecord.enableModelRestriction,
+          restrictedModels: keyRecord.restrictedModels || [],
+          enableClientRestriction: keyRecord.enableClientRestriction,
+          allowedClients: keyRecord.allowedClients || [],
+          dailyCostLimit: Number(keyRecord.dailyCostLimit || 0),
+          totalCostLimit: Number(keyRecord.totalCostLimit || 0),
+          weeklyOpusCostLimit: Number(keyRecord.weeklyOpusCostLimit || 0),
           dailyCost: dailyCost || 0,
           totalCost,
-          weeklyOpusCost: (await redis.getWeeklyOpusCost(keyData.id)) || 0,
-          tags,
+          weeklyOpusCost: (await redis.getWeeklyOpusCost(keyRecord.id)) || 0,
+          tags: keyRecord.tags || [],
           usage
         }
       }
@@ -374,116 +363,94 @@ class ApiKeyService {
       // 计算API Key的哈希值
       const hashedKey = this._hashApiKey(apiKey)
 
-      // 通过哈希值直接查找API Key（性能优化）
-      const keyData = await redis.findApiKeyByHash(hashedKey)
+      // 从 PostgreSQL 通过哈希值查找 API Key
+      const keyRecord = await prisma.apiKey.findUnique({
+        where: { keyHash: hashedKey }
+      })
 
-      if (!keyData) {
+      if (!keyRecord) {
         return { valid: false, error: 'API key not found' }
       }
 
+      // 检查是否已删除
+      if (keyRecord.isDeleted) {
+        return { valid: false, error: 'API key has been deleted' }
+      }
+
       // 检查是否激活
-      if (keyData.isActive !== 'true') {
-        const keyName = keyData.name || 'Unknown'
+      if (!keyRecord.isActive) {
+        const keyName = keyRecord.name || 'Unknown'
         return { valid: false, error: `API Key "${keyName}" 已被禁用`, keyName }
       }
 
       // 注意：这里不处理激活逻辑，保持 API Key 的未激活状态
 
       // 检查是否过期（仅对已激活的 Key 检查）
-      if (
-        keyData.isActivated === 'true' &&
-        keyData.expiresAt &&
-        new Date() > new Date(keyData.expiresAt)
-      ) {
-        const keyName = keyData.name || 'Unknown'
+      if (keyRecord.isActivated && keyRecord.expiresAt && new Date() > keyRecord.expiresAt) {
+        const keyName = keyRecord.name || 'Unknown'
         return { valid: false, error: `API Key "${keyName}" 已过期`, keyName }
       }
 
       // 如果API Key属于某个用户，检查用户是否被禁用
-      if (keyData.userId) {
+      if (keyRecord.userId) {
         try {
           const userService = require('./userService')
-          const user = await userService.getUserById(keyData.userId, false)
+          const user = await userService.getUserById(keyRecord.userId, false)
           if (!user || !user.isActive) {
             return { valid: false, error: 'User account is disabled' }
           }
         } catch (userError) {
           // 如果用户服务出错，记录但不影响API Key验证
-          logger.warn(`Failed to check user status for API key ${keyData.id}:`, userError)
+          logger.warn(`Failed to check user status for API key ${keyRecord.id}:`, userError)
         }
       }
 
-      // 获取当日费用
+      // 获取费用统计（从 Redis）
       const [dailyCost, costStats] = await Promise.all([
-        redis.getDailyCost(keyData.id),
-        redis.getCostStats(keyData.id)
+        redis.getDailyCost(keyRecord.id),
+        redis.getCostStats(keyRecord.id)
       ])
 
-      // 获取使用统计
-      const usage = await redis.getUsageStats(keyData.id)
-
-      // 解析限制模型数据
-      let restrictedModels = []
-      try {
-        restrictedModels = keyData.restrictedModels ? JSON.parse(keyData.restrictedModels) : []
-      } catch (e) {
-        restrictedModels = []
-      }
-
-      // 解析允许的客户端
-      let allowedClients = []
-      try {
-        allowedClients = keyData.allowedClients ? JSON.parse(keyData.allowedClients) : []
-      } catch (e) {
-        allowedClients = []
-      }
-
-      // 解析标签
-      let tags = []
-      try {
-        tags = keyData.tags ? JSON.parse(keyData.tags) : []
-      } catch (e) {
-        tags = []
-      }
+      // 获取使用统计（从 Redis）
+      const usage = await redis.getUsageStats(keyRecord.id)
 
       return {
         valid: true,
         keyData: {
-          id: keyData.id,
-          name: keyData.name,
-          description: keyData.description,
-          createdAt: keyData.createdAt,
-          expiresAt: keyData.expiresAt,
-          // 添加激活相关字段
-          expirationMode: keyData.expirationMode || 'fixed',
-          isActivated: keyData.isActivated === 'true',
-          activationDays: parseInt(keyData.activationDays || 0),
-          activationUnit: keyData.activationUnit || 'days',
-          activatedAt: keyData.activatedAt || null,
-          claudeAccountId: keyData.claudeAccountId,
-          claudeConsoleAccountId: keyData.claudeConsoleAccountId,
-          geminiAccountId: keyData.geminiAccountId,
-          openaiAccountId: keyData.openaiAccountId,
-          azureOpenaiAccountId: keyData.azureOpenaiAccountId,
-          bedrockAccountId: keyData.bedrockAccountId,
-          droidAccountId: keyData.droidAccountId,
-          permissions: keyData.permissions || 'all',
-          tokenLimit: parseInt(keyData.tokenLimit),
-          concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
-          rateLimitWindow: parseInt(keyData.rateLimitWindow || 0),
-          rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
-          rateLimitCost: parseFloat(keyData.rateLimitCost || 0),
-          enableModelRestriction: keyData.enableModelRestriction === 'true',
-          restrictedModels,
-          enableClientRestriction: keyData.enableClientRestriction === 'true',
-          allowedClients,
-          dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
-          totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
-          weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
+          id: keyRecord.id,
+          name: keyRecord.name,
+          description: keyRecord.description,
+          createdAt: keyRecord.createdAt?.toISOString(),
+          expiresAt: keyRecord.expiresAt?.toISOString() || null,
+          expirationMode: keyRecord.expirationMode || 'fixed',
+          isActivated: keyRecord.isActivated,
+          activationDays: keyRecord.activationDays || 0,
+          activationUnit: keyRecord.activationUnit || 'days',
+          activatedAt: keyRecord.activatedAt?.toISOString() || null,
+          claudeAccountId: keyRecord.claudeAccountId,
+          claudeConsoleAccountId: keyRecord.claudeConsoleAccountId,
+          geminiAccountId: keyRecord.geminiAccountId,
+          openaiAccountId: keyRecord.openaiAccountId,
+          azureOpenaiAccountId: keyRecord.azureOpenaiAccountId,
+          bedrockAccountId: keyRecord.bedrockAccountId,
+          droidAccountId: keyRecord.droidAccountId,
+          permissions: keyRecord.permissions || 'all',
+          tokenLimit: Number(keyRecord.tokenLimit),
+          concurrencyLimit: keyRecord.concurrencyLimit || 0,
+          rateLimitWindow: keyRecord.rateLimitWindow || 0,
+          rateLimitRequests: keyRecord.rateLimitRequests || 0,
+          rateLimitCost: Number(keyRecord.rateLimitCost || 0),
+          enableModelRestriction: keyRecord.enableModelRestriction,
+          restrictedModels: keyRecord.restrictedModels || [],
+          enableClientRestriction: keyRecord.enableClientRestriction,
+          allowedClients: keyRecord.allowedClients || [],
+          dailyCostLimit: Number(keyRecord.dailyCostLimit || 0),
+          totalCostLimit: Number(keyRecord.totalCostLimit || 0),
+          weeklyOpusCostLimit: Number(keyRecord.weeklyOpusCostLimit || 0),
           dailyCost: dailyCost || 0,
           totalCost: costStats?.total || 0,
-          weeklyOpusCost: (await redis.getWeeklyOpusCost(keyData.id)) || 0,
-          tags,
+          weeklyOpusCost: (await redis.getWeeklyOpusCost(keyRecord.id)) || 0,
+          tags: keyRecord.tags || [],
           usage
         }
       }
@@ -496,83 +463,107 @@ class ApiKeyService {
   // 📋 获取所有API Keys
   async getAllApiKeys(includeDeleted = false) {
     try {
-      let apiKeys = await redis.getAllApiKeys()
+      // 从 PostgreSQL 获取所有 API Keys
+      const whereClause = includeDeleted ? {} : { isDeleted: false }
+      const apiKeyRecords = await prisma.apiKey.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' }
+      })
+
       const client = redis.getClientSafe()
       const accountInfoCache = new Map()
-
-      // 默认过滤掉已删除的API Keys
-      if (!includeDeleted) {
-        apiKeys = apiKeys.filter((key) => key.isDeleted !== 'true')
-      }
+      const apiKeys = []
 
       // 为每个key添加使用统计和当前并发数
-      for (const key of apiKeys) {
+      for (const record of apiKeyRecords) {
+        const key = {
+          id: record.id,
+          name: record.name,
+          description: record.description,
+          createdAt: record.createdAt?.toISOString(),
+          expiresAt: record.expiresAt?.toISOString() || null,
+          lastUsedAt: record.lastUsedAt?.toISOString() || null,
+          claudeAccountId: record.claudeAccountId,
+          claudeConsoleAccountId: record.claudeConsoleAccountId,
+          geminiAccountId: record.geminiAccountId,
+          openaiAccountId: record.openaiAccountId,
+          azureOpenaiAccountId: record.azureOpenaiAccountId,
+          bedrockAccountId: record.bedrockAccountId,
+          droidAccountId: record.droidAccountId,
+          permissions: record.permissions || 'all',
+          tokenLimit: Number(record.tokenLimit),
+          concurrencyLimit: record.concurrencyLimit || 0,
+          rateLimitWindow: record.rateLimitWindow || 0,
+          rateLimitRequests: record.rateLimitRequests || 0,
+          rateLimitCost: Number(record.rateLimitCost || 0),
+          isActive: record.isActive,
+          isDeleted: record.isDeleted,
+          deletedAt: record.deletedAt?.toISOString() || null,
+          deletedBy: record.deletedBy,
+          deletedByType: record.deletedByType,
+          enableModelRestriction: record.enableModelRestriction,
+          restrictedModels: record.restrictedModels || [],
+          enableClientRestriction: record.enableClientRestriction,
+          allowedClients: record.allowedClients || [],
+          dailyCostLimit: Number(record.dailyCostLimit || 0),
+          totalCostLimit: Number(record.totalCostLimit || 0),
+          weeklyOpusCostLimit: Number(record.weeklyOpusCostLimit || 0),
+          tags: record.tags || [],
+          activationDays: record.activationDays || 0,
+          activationUnit: record.activationUnit || 'days',
+          expirationMode: record.expirationMode || 'fixed',
+          isActivated: record.isActivated,
+          activatedAt: record.activatedAt?.toISOString() || null,
+          icon: record.icon,
+          createdBy: record.createdBy,
+          userId: record.userId,
+          userUsername: record.userUsername
+        }
+
+        // 从 Redis 获取使用统计
         key.usage = await redis.getUsageStats(key.id)
         const costStats = await redis.getCostStats(key.id)
-        // Add cost information to usage object for frontend compatibility
         if (key.usage && costStats) {
           key.usage.total = key.usage.total || {}
           key.usage.total.cost = costStats.total
           key.usage.totalCost = costStats.total
         }
         key.totalCost = costStats ? costStats.total : 0
-        key.tokenLimit = parseInt(key.tokenLimit)
-        key.concurrencyLimit = parseInt(key.concurrencyLimit || 0)
-        key.rateLimitWindow = parseInt(key.rateLimitWindow || 0)
-        key.rateLimitRequests = parseInt(key.rateLimitRequests || 0)
-        key.rateLimitCost = parseFloat(key.rateLimitCost || 0) // 新增：速率限制费用字段
         key.currentConcurrency = await redis.getConcurrency(key.id)
-        key.isActive = key.isActive === 'true'
-        key.enableModelRestriction = key.enableModelRestriction === 'true'
-        key.enableClientRestriction = key.enableClientRestriction === 'true'
-        key.permissions = key.permissions || 'all' // 兼容旧数据
-        key.dailyCostLimit = parseFloat(key.dailyCostLimit || 0)
-        key.totalCostLimit = parseFloat(key.totalCostLimit || 0)
-        key.weeklyOpusCostLimit = parseFloat(key.weeklyOpusCostLimit || 0)
         key.dailyCost = (await redis.getDailyCost(key.id)) || 0
         key.weeklyOpusCost = (await redis.getWeeklyOpusCost(key.id)) || 0
-        key.activationDays = parseInt(key.activationDays || 0)
-        key.activationUnit = key.activationUnit || 'days'
-        key.expirationMode = key.expirationMode || 'fixed'
-        key.isActivated = key.isActivated === 'true'
-        key.activatedAt = key.activatedAt || null
 
         // 获取当前时间窗口的请求次数、Token使用量和费用
         if (key.rateLimitWindow > 0) {
           const requestCountKey = `rate_limit:requests:${key.id}`
           const tokenCountKey = `rate_limit:tokens:${key.id}`
-          const costCountKey = `rate_limit:cost:${key.id}` // 新增：费用计数器
+          const costCountKey = `rate_limit:cost:${key.id}`
           const windowStartKey = `rate_limit:window_start:${key.id}`
 
           key.currentWindowRequests = parseInt((await client.get(requestCountKey)) || '0')
           key.currentWindowTokens = parseInt((await client.get(tokenCountKey)) || '0')
-          key.currentWindowCost = parseFloat((await client.get(costCountKey)) || '0') // 新增：当前窗口费用
+          key.currentWindowCost = parseFloat((await client.get(costCountKey)) || '0')
 
-          // 获取窗口开始时间和计算剩余时间
           const windowStart = await client.get(windowStartKey)
           if (windowStart) {
             const now = Date.now()
             const windowStartTime = parseInt(windowStart)
-            const windowDuration = key.rateLimitWindow * 60 * 1000 // 转换为毫秒
+            const windowDuration = key.rateLimitWindow * 60 * 1000
             const windowEndTime = windowStartTime + windowDuration
 
-            // 如果窗口还有效
             if (now < windowEndTime) {
               key.windowStartTime = windowStartTime
               key.windowEndTime = windowEndTime
               key.windowRemainingSeconds = Math.max(0, Math.floor((windowEndTime - now) / 1000))
             } else {
-              // 窗口已过期，下次请求会重置
               key.windowStartTime = null
               key.windowEndTime = null
               key.windowRemainingSeconds = 0
-              // 重置计数为0，因为窗口已过期
               key.currentWindowRequests = 0
               key.currentWindowTokens = 0
-              key.currentWindowCost = 0 // 新增：重置费用
+              key.currentWindowCost = 0
             }
           } else {
-            // 窗口还未开始（没有任何请求）
             key.windowStartTime = null
             key.windowEndTime = null
             key.windowRemainingSeconds = null
@@ -580,32 +571,13 @@ class ApiKeyService {
         } else {
           key.currentWindowRequests = 0
           key.currentWindowTokens = 0
-          key.currentWindowCost = 0 // 新增：重置费用
+          key.currentWindowCost = 0
           key.windowStartTime = null
           key.windowEndTime = null
           key.windowRemainingSeconds = null
         }
 
-        try {
-          key.restrictedModels = key.restrictedModels ? JSON.parse(key.restrictedModels) : []
-        } catch (e) {
-          key.restrictedModels = []
-        }
-        try {
-          key.allowedClients = key.allowedClients ? JSON.parse(key.allowedClients) : []
-        } catch (e) {
-          key.allowedClients = []
-        }
-        try {
-          key.tags = key.tags ? JSON.parse(key.tags) : []
-        } catch (e) {
-          key.tags = []
-        }
-        // 不暴露已弃用字段
-        if (Object.prototype.hasOwnProperty.call(key, 'ccrAccountId')) {
-          delete key.ccrAccountId
-        }
-
+        // 获取最后使用记录
         let lastUsageRecord = null
         try {
           const usageRecords = await redis.getUsageRecords(key.id, 1)
@@ -647,7 +619,7 @@ class ApiKeyService {
           key.lastUsage = null
         }
 
-        delete key.apiKey // 不返回哈希后的key
+        apiKeys.push(key)
       }
 
       return apiKeys
@@ -660,77 +632,103 @@ class ApiKeyService {
   // 📝 更新API Key
   async updateApiKey(keyId, updates) {
     try {
-      const keyData = await redis.getApiKey(keyId)
-      if (!keyData || Object.keys(keyData).length === 0) {
+      // 从 PostgreSQL 获取现有数据
+      const keyRecord = await prisma.apiKey.findUnique({
+        where: { id: keyId }
+      })
+
+      if (!keyRecord) {
         throw new Error('API key not found')
       }
 
-      // 允许更新的字段
-      const allowedUpdates = [
-        'name',
-        'description',
-        'tokenLimit',
-        'concurrencyLimit',
-        'rateLimitWindow',
-        'rateLimitRequests',
-        'rateLimitCost', // 新增：速率限制费用字段
-        'isActive',
-        'claudeAccountId',
-        'claudeConsoleAccountId',
-        'geminiAccountId',
-        'openaiAccountId',
-        'azureOpenaiAccountId',
-        'bedrockAccountId', // 添加 Bedrock 账号ID
-        'droidAccountId',
-        'permissions',
-        'expiresAt',
-        'activationDays', // 新增：激活后有效天数
-        'activationUnit', // 新增：激活时间单位
-        'expirationMode', // 新增：过期模式
-        'isActivated', // 新增：是否已激活
-        'activatedAt', // 新增：激活时间
-        'enableModelRestriction',
-        'restrictedModels',
-        'enableClientRestriction',
-        'allowedClients',
-        'dailyCostLimit',
-        'totalCostLimit',
-        'weeklyOpusCostLimit',
-        'tags',
-        'userId', // 新增：用户ID（所有者变更）
-        'userUsername', // 新增：用户名（所有者变更）
-        'createdBy' // 新增：创建者（所有者变更）
-      ]
-      const updatedData = { ...keyData }
+      // 构建更新数据
+      const updateData = {}
 
-      for (const [field, value] of Object.entries(updates)) {
-        if (allowedUpdates.includes(field)) {
-          if (field === 'restrictedModels' || field === 'allowedClients' || field === 'tags') {
-            // 特殊处理数组字段
-            updatedData[field] = JSON.stringify(value || [])
-          } else if (
-            field === 'enableModelRestriction' ||
-            field === 'enableClientRestriction' ||
-            field === 'isActivated'
-          ) {
-            // 布尔值转字符串
-            updatedData[field] = String(value)
+      // 字段映射：前端字段名 -> Prisma 字段名
+      const fieldMapping = {
+        name: 'name',
+        description: 'description',
+        tokenLimit: 'tokenLimit',
+        concurrencyLimit: 'concurrencyLimit',
+        rateLimitWindow: 'rateLimitWindow',
+        rateLimitRequests: 'rateLimitRequests',
+        rateLimitCost: 'rateLimitCost',
+        isActive: 'isActive',
+        claudeAccountId: 'claudeAccountId',
+        claudeConsoleAccountId: 'claudeConsoleAccountId',
+        geminiAccountId: 'geminiAccountId',
+        openaiAccountId: 'openaiAccountId',
+        azureOpenaiAccountId: 'azureOpenaiAccountId',
+        bedrockAccountId: 'bedrockAccountId',
+        droidAccountId: 'droidAccountId',
+        permissions: 'permissions',
+        expiresAt: 'expiresAt',
+        activationDays: 'activationDays',
+        activationUnit: 'activationUnit',
+        expirationMode: 'expirationMode',
+        isActivated: 'isActivated',
+        activatedAt: 'activatedAt',
+        enableModelRestriction: 'enableModelRestriction',
+        restrictedModels: 'restrictedModels',
+        enableClientRestriction: 'enableClientRestriction',
+        allowedClients: 'allowedClients',
+        dailyCostLimit: 'dailyCostLimit',
+        totalCostLimit: 'totalCostLimit',
+        weeklyOpusCostLimit: 'weeklyOpusCostLimit',
+        tags: 'tags',
+        userId: 'userId',
+        userUsername: 'userUsername',
+        createdBy: 'createdBy',
+        icon: 'icon'
+      }
+
+      for (const [field, prismaField] of Object.entries(fieldMapping)) {
+        if (updates[field] !== undefined) {
+          let value = updates[field]
+
+          // 特殊处理不同类型的字段
+          if (field === 'tokenLimit') {
+            value = BigInt(value || 0)
           } else if (field === 'expiresAt' || field === 'activatedAt') {
-            // 日期字段保持原样，不要toString()
-            updatedData[field] = value || ''
-          } else {
-            updatedData[field] = (value !== null && value !== undefined ? value : '').toString()
+            value = value ? new Date(value) : null
+          } else if (
+            field === 'concurrencyLimit' ||
+            field === 'rateLimitWindow' ||
+            field === 'rateLimitRequests' ||
+            field === 'activationDays'
+          ) {
+            value = parseInt(value) || 0
+          } else if (
+            field === 'rateLimitCost' ||
+            field === 'dailyCostLimit' ||
+            field === 'totalCostLimit' ||
+            field === 'weeklyOpusCostLimit'
+          ) {
+            value = parseFloat(value) || 0
+          } else if (
+            field === 'claudeAccountId' ||
+            field === 'claudeConsoleAccountId' ||
+            field === 'geminiAccountId' ||
+            field === 'openaiAccountId' ||
+            field === 'azureOpenaiAccountId' ||
+            field === 'bedrockAccountId' ||
+            field === 'droidAccountId' ||
+            field === 'userId'
+          ) {
+            value = value || null
           }
+
+          updateData[prismaField] = value
         }
       }
 
-      updatedData.updatedAt = new Date().toISOString()
+      // 更新 PostgreSQL
+      await prisma.apiKey.update({
+        where: { id: keyId },
+        data: updateData
+      })
 
-      // 传递hashedKey以确保映射表一致性
-      // keyData.apiKey 存储的就是 hashedKey（见generateApiKey第123行）
-      await redis.setApiKey(keyId, updatedData, keyData.apiKey)
-
-      logger.success(`📝 Updated API key: ${keyId}, hashMap updated`)
+      logger.success(`📝 Updated API key: ${keyId}`)
 
       return { success: true }
     } catch (error) {
@@ -742,27 +740,26 @@ class ApiKeyService {
   // 🗑️ 软删除API Key (保留使用统计)
   async deleteApiKey(keyId, deletedBy = 'system', deletedByType = 'system') {
     try {
-      const keyData = await redis.getApiKey(keyId)
-      if (!keyData || Object.keys(keyData).length === 0) {
+      // 从 PostgreSQL 获取现有数据
+      const keyRecord = await prisma.apiKey.findUnique({
+        where: { id: keyId }
+      })
+
+      if (!keyRecord) {
         throw new Error('API key not found')
       }
 
-      // 标记为已删除，保留所有数据和统计信息
-      const updatedData = {
-        ...keyData,
-        isDeleted: 'true',
-        deletedAt: new Date().toISOString(),
-        deletedBy,
-        deletedByType, // 'user', 'admin', 'system'
-        isActive: 'false' // 同时禁用
-      }
-
-      await redis.setApiKey(keyId, updatedData)
-
-      // 从哈希映射中移除（这样就不能再使用这个key进行API调用）
-      if (keyData.apiKey) {
-        await redis.deleteApiKeyHash(keyData.apiKey)
-      }
+      // 软删除：标记为已删除，保留所有数据
+      await prisma.apiKey.update({
+        where: { id: keyId },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy,
+          deletedByType,
+          isActive: false
+        }
+      })
 
       // 从费用排序索引中移除
       try {
@@ -784,44 +781,31 @@ class ApiKeyService {
   // 🔄 恢复已删除的API Key
   async restoreApiKey(keyId, restoredBy = 'system', restoredByType = 'system') {
     try {
-      const keyData = await redis.getApiKey(keyId)
-      if (!keyData || Object.keys(keyData).length === 0) {
+      // 从 PostgreSQL 获取现有数据
+      const keyRecord = await prisma.apiKey.findUnique({
+        where: { id: keyId }
+      })
+
+      if (!keyRecord) {
         throw new Error('API key not found')
       }
 
       // 检查是否确实是已删除的key
-      if (keyData.isDeleted !== 'true') {
+      if (!keyRecord.isDeleted) {
         throw new Error('API key is not deleted')
       }
 
-      // 准备更新的数据
-      const updatedData = { ...keyData }
-      updatedData.isActive = 'true'
-      updatedData.restoredAt = new Date().toISOString()
-      updatedData.restoredBy = restoredBy
-      updatedData.restoredByType = restoredByType
-
-      // 从更新的数据中移除删除相关的字段
-      delete updatedData.isDeleted
-      delete updatedData.deletedAt
-      delete updatedData.deletedBy
-      delete updatedData.deletedByType
-
-      // 保存更新后的数据
-      await redis.setApiKey(keyId, updatedData)
-
-      // 使用Redis的hdel命令删除不需要的字段
-      const keyName = `apikey:${keyId}`
-      await redis.client.hdel(keyName, 'isDeleted', 'deletedAt', 'deletedBy', 'deletedByType')
-
-      // 重新建立哈希映射（恢复API Key的使用能力）
-      if (keyData.apiKey) {
-        await redis.setApiKeyHash(keyData.apiKey, {
-          id: keyId,
-          name: keyData.name,
-          isActive: 'true'
-        })
-      }
+      // 恢复：清除删除标记，重新激活
+      const updatedRecord = await prisma.apiKey.update({
+        where: { id: keyId },
+        data: {
+          isDeleted: false,
+          deletedAt: null,
+          deletedBy: null,
+          deletedByType: null,
+          isActive: true
+        }
+      })
 
       // 重新添加到费用排序索引
       try {
@@ -833,7 +817,7 @@ class ApiKeyService {
 
       logger.success(`✅ Restored API key: ${keyId} by ${restoredBy} (${restoredByType})`)
 
-      return { success: true, apiKey: updatedData }
+      return { success: true, apiKey: updatedRecord }
     } catch (error) {
       logger.error('❌ Failed to restore API key:', error)
       throw error
@@ -843,36 +827,43 @@ class ApiKeyService {
   // 🗑️ 彻底删除API Key（物理删除）
   async permanentDeleteApiKey(keyId) {
     try {
-      const keyData = await redis.getApiKey(keyId)
-      if (!keyData || Object.keys(keyData).length === 0) {
+      // 从 PostgreSQL 获取现有数据
+      const keyRecord = await prisma.apiKey.findUnique({
+        where: { id: keyId }
+      })
+
+      if (!keyRecord) {
         throw new Error('API key not found')
       }
 
       // 确保只能彻底删除已经软删除的key
-      if (keyData.isDeleted !== 'true') {
+      if (!keyRecord.isDeleted) {
         throw new Error('只能彻底删除已经删除的API Key')
       }
 
-      // 删除所有相关的使用统计数据
+      // 删除 Redis 中所有相关的使用统计数据
       const today = new Date().toISOString().split('T')[0]
       const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+      const client = redis.getClientSafe()
 
       // 删除每日统计
-      await redis.client.del(`usage:daily:${today}:${keyId}`)
-      await redis.client.del(`usage:daily:${yesterday}:${keyId}`)
+      await client.del(`usage:daily:${today}:${keyId}`)
+      await client.del(`usage:daily:${yesterday}:${keyId}`)
 
       // 删除月度统计
       const currentMonth = today.substring(0, 7)
-      await redis.client.del(`usage:monthly:${currentMonth}:${keyId}`)
+      await client.del(`usage:monthly:${currentMonth}:${keyId}`)
 
       // 删除所有相关的统计键（通过模式匹配）
-      const usageKeys = await redis.client.keys(`usage:*:${keyId}*`)
+      const usageKeys = await client.keys(`usage:*:${keyId}*`)
       if (usageKeys.length > 0) {
-        await redis.client.del(...usageKeys)
+        await client.del(...usageKeys)
       }
 
-      // 删除API Key本身
-      await redis.deleteApiKey(keyId)
+      // 从 PostgreSQL 彻底删除 API Key
+      await prisma.apiKey.delete({
+        where: { id: keyId }
+      })
 
       logger.success(`🗑️ Permanently deleted API key: ${keyId}`)
 
@@ -887,7 +878,7 @@ class ApiKeyService {
   async clearAllDeletedApiKeys() {
     try {
       const allKeys = await this.getAllApiKeys(true)
-      const deletedKeys = allKeys.filter((key) => key.isDeleted === 'true')
+      const deletedKeys = allKeys.filter((key) => key.isDeleted === true)
 
       let successCount = 0
       let failedCount = 0
@@ -978,33 +969,35 @@ class ApiKeyService {
         logger.debug(`💰 No cost recorded for ${keyId} - zero cost for model: ${model}`)
       }
 
-      // 获取API Key数据以确定关联的账户
-      const keyData = await redis.getApiKey(keyId)
-      if (keyData && Object.keys(keyData).length > 0) {
-        // 更新最后使用时间
-        keyData.lastUsedAt = new Date().toISOString()
-        await redis.setApiKey(keyId, keyData)
+      // 更新最后使用时间到 PostgreSQL
+      try {
+        await prisma.apiKey.update({
+          where: { id: keyId },
+          data: { lastUsedAt: new Date() }
+        })
+      } catch (updateError) {
+        logger.warn(`Failed to update lastUsedAt for API Key ${keyId}:`, updateError.message)
+      }
 
-        // 记录账户级别的使用统计（只统计实际处理请求的账户）
-        if (accountId) {
-          await redis.incrementAccountUsage(
-            accountId,
-            totalTokens,
-            inputTokens,
-            outputTokens,
-            cacheCreateTokens,
-            cacheReadTokens,
-            model,
-            isLongContextRequest
-          )
-          logger.database(
-            `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`
-          )
-        } else {
-          logger.debug(
-            '⚠️ No accountId provided for usage recording, skipping account-level statistics'
-          )
-        }
+      // 记录账户级别的使用统计（只统计实际处理请求的账户）
+      if (accountId) {
+        await redis.incrementAccountUsage(
+          accountId,
+          totalTokens,
+          inputTokens,
+          outputTokens,
+          cacheCreateTokens,
+          cacheReadTokens,
+          model,
+          isLongContextRequest
+        )
+        logger.database(
+          `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`
+        )
+      } else {
+        logger.debug(
+          '⚠️ No accountId provided for usage recording, skipping account-level statistics'
+        )
       }
 
       // 记录单次请求的使用详情
@@ -1075,6 +1068,17 @@ class ApiKeyService {
     accountType = null
   ) {
     try {
+      // 获取 API Key 数据（用于计费事件）
+      let keyData = null
+      try {
+        keyData = await prisma.apiKey.findUnique({
+          where: { id: keyId },
+          select: { name: true, userId: true }
+        })
+      } catch (keyDataError) {
+        logger.warn(`Failed to get API Key data for billing event: ${keyDataError.message}`)
+      }
+
       // 提取 token 数量
       const inputTokens = usageObject.input_tokens || 0
       const outputTokens = usageObject.output_tokens || 0
@@ -1188,33 +1192,35 @@ class ApiKeyService {
         }
       }
 
-      // 获取API Key数据以确定关联的账户
-      const keyData = await redis.getApiKey(keyId)
-      if (keyData && Object.keys(keyData).length > 0) {
-        // 更新最后使用时间
-        keyData.lastUsedAt = new Date().toISOString()
-        await redis.setApiKey(keyId, keyData)
+      // 更新最后使用时间到 PostgreSQL
+      try {
+        await prisma.apiKey.update({
+          where: { id: keyId },
+          data: { lastUsedAt: new Date() }
+        })
+      } catch (updateError) {
+        logger.warn(`Failed to update lastUsedAt for API Key ${keyId}:`, updateError.message)
+      }
 
-        // 记录账户级别的使用统计（只统计实际处理请求的账户）
-        if (accountId) {
-          await redis.incrementAccountUsage(
-            accountId,
-            totalTokens,
-            inputTokens,
-            outputTokens,
-            cacheCreateTokens,
-            cacheReadTokens,
-            model,
-            costInfo.isLongContextRequest || false
-          )
-          logger.database(
-            `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`
-          )
-        } else {
-          logger.debug(
-            '⚠️ No accountId provided for usage recording, skipping account-level statistics'
-          )
-        }
+      // 记录账户级别的使用统计（只统计实际处理请求的账户）
+      if (accountId) {
+        await redis.incrementAccountUsage(
+          accountId,
+          totalTokens,
+          inputTokens,
+          outputTokens,
+          cacheCreateTokens,
+          cacheReadTokens,
+          model,
+          costInfo.isLongContextRequest || false
+        )
+        logger.database(
+          `📊 Recorded account usage: ${accountId} - ${totalTokens} tokens (API Key: ${keyId})`
+        )
+      } else {
+        logger.debug(
+          '⚠️ No accountId provided for usage recording, skipping account-level statistics'
+        )
       }
 
       const usageRecord = {
@@ -1545,41 +1551,43 @@ class ApiKeyService {
   // 🔍 通过ID获取API Key（检查权限）
   async getApiKeyById(keyId, userId = null) {
     try {
-      const keyData = await redis.getApiKey(keyId)
-      if (!keyData) {
+      // 从 PostgreSQL 获取 API Key
+      const keyRecord = await prisma.apiKey.findUnique({
+        where: { id: keyId }
+      })
+
+      if (!keyRecord) {
         return null
       }
 
       // 如果指定了用户ID，检查权限
-      if (userId && keyData.userId !== userId) {
+      if (userId && keyRecord.userId !== userId) {
         return null
       }
 
       return {
-        id: keyData.id,
-        name: keyData.name,
-        description: keyData.description,
-        key: keyData.apiKey,
-        tokenLimit: parseInt(keyData.tokenLimit || 0),
-        isActive: keyData.isActive === 'true',
-        createdAt: keyData.createdAt,
-        lastUsedAt: keyData.lastUsedAt,
-        expiresAt: keyData.expiresAt,
-        userId: keyData.userId,
-        userUsername: keyData.userUsername,
-        createdBy: keyData.createdBy,
-        permissions: keyData.permissions,
-        dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
-        totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
-        // 所有平台账户绑定字段
-        claudeAccountId: keyData.claudeAccountId,
-        claudeConsoleAccountId: keyData.claudeConsoleAccountId,
-        geminiAccountId: keyData.geminiAccountId,
-        openaiAccountId: keyData.openaiAccountId,
-        bedrockAccountId: keyData.bedrockAccountId,
-        droidAccountId: keyData.droidAccountId,
-        azureOpenaiAccountId: keyData.azureOpenaiAccountId,
-        ccrAccountId: keyData.ccrAccountId
+        id: keyRecord.id,
+        name: keyRecord.name,
+        description: keyRecord.description,
+        key: keyRecord.keyHash, // 注意：这是哈希值，不是原始 key
+        tokenLimit: Number(keyRecord.tokenLimit || 0),
+        isActive: keyRecord.isActive,
+        createdAt: keyRecord.createdAt?.toISOString(),
+        lastUsedAt: keyRecord.lastUsedAt?.toISOString(),
+        expiresAt: keyRecord.expiresAt?.toISOString(),
+        userId: keyRecord.userId,
+        userUsername: keyRecord.userUsername,
+        createdBy: keyRecord.createdBy,
+        permissions: keyRecord.permissions,
+        dailyCostLimit: Number(keyRecord.dailyCostLimit || 0),
+        totalCostLimit: Number(keyRecord.totalCostLimit || 0),
+        claudeAccountId: keyRecord.claudeAccountId,
+        claudeConsoleAccountId: keyRecord.claudeConsoleAccountId,
+        geminiAccountId: keyRecord.geminiAccountId,
+        openaiAccountId: keyRecord.openaiAccountId,
+        bedrockAccountId: keyRecord.bedrockAccountId,
+        droidAccountId: keyRecord.droidAccountId,
+        azureOpenaiAccountId: keyRecord.azureOpenaiAccountId
       }
     } catch (error) {
       logger.error('❌ Failed to get API key by ID:', error)
@@ -1590,7 +1598,11 @@ class ApiKeyService {
   // 🔄 重新生成API Key
   async regenerateApiKey(keyId) {
     try {
-      const existingKey = await redis.getApiKey(keyId)
+      // 从 PostgreSQL 获取现有数据
+      const existingKey = await prisma.apiKey.findUnique({
+        where: { id: keyId }
+      })
+
       if (!existingKey) {
         throw new Error('API key not found')
       }
@@ -1599,19 +1611,11 @@ class ApiKeyService {
       const newApiKey = `${this.prefix}${this._generateSecretKey()}`
       const newHashedKey = this._hashApiKey(newApiKey)
 
-      // 删除旧的哈希映射
-      const oldHashedKey = existingKey.apiKey
-      await redis.deleteApiKeyHash(oldHashedKey)
-
-      // 更新key数据
-      const updatedKeyData = {
-        ...existingKey,
-        apiKey: newHashedKey,
-        updatedAt: new Date().toISOString()
-      }
-
-      // 保存新数据并建立新的哈希映射
-      await redis.setApiKey(keyId, updatedKeyData, newHashedKey)
+      // 更新 PostgreSQL 中的 keyHash
+      await prisma.apiKey.update({
+        where: { id: keyId },
+        data: { keyHash: newHashedKey }
+      })
 
       logger.info(`🔄 Regenerated API key: ${existingKey.name} (${keyId})`)
 
@@ -1619,7 +1623,7 @@ class ApiKeyService {
         id: keyId,
         name: existingKey.name,
         key: newApiKey, // 返回完整的新key
-        updatedAt: updatedKeyData.updatedAt
+        updatedAt: new Date().toISOString()
       }
     } catch (error) {
       logger.error('❌ Failed to regenerate API key:', error)
@@ -1630,16 +1634,21 @@ class ApiKeyService {
   // 🗑️ 硬删除API Key (完全移除)
   async hardDeleteApiKey(keyId) {
     try {
-      const keyData = await redis.getApiKey(keyId)
-      if (!keyData) {
+      // 从 PostgreSQL 获取现有数据
+      const keyRecord = await prisma.apiKey.findUnique({
+        where: { id: keyId }
+      })
+
+      if (!keyRecord) {
         throw new Error('API key not found')
       }
 
-      // 删除key数据和哈希映射
-      await redis.deleteApiKey(keyId)
-      await redis.deleteApiKeyHash(keyData.apiKey)
+      // 从 PostgreSQL 彻底删除
+      await prisma.apiKey.delete({
+        where: { id: keyId }
+      })
 
-      logger.info(`🗑️ Deleted API key: ${keyData.name} (${keyId})`)
+      logger.info(`🗑️ Deleted API key: ${keyRecord.name} (${keyId})`)
       return true
     } catch (error) {
       logger.error('❌ Failed to delete API key:', error)

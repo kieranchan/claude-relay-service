@@ -66,14 +66,17 @@ model Plan {
 // 用户系统 (为未来迁移准备)
 // ========================================
 
-/// 用户表 - 存储用户账户信息
+/// 用户表 - 存储邮箱登录用户账户信息
 model User {
   id              String   @id @default(uuid()) @db.Uuid
   email           String   @unique @db.VarChar(255)
   passwordHash    String   @map("password_hash") @db.VarChar(255)
   emailVerified   Boolean  @default(false) @map("email_verified")
-  status          String   @default("active") @db.VarChar(20) // active | suspended | deleted
+  status          String   @default("pending") @db.VarChar(20) // pending | active | suspended | deleted
   role            String   @default("user") @db.VarChar(20) // user | admin
+
+  // 登录统计
+  loginCount      Int      @default(0) @map("login_count")
 
   // 邀请信息
   referralCode    String?  @unique @map("referral_code") @db.VarChar(50)
@@ -89,11 +92,101 @@ model User {
   // 关联
   subscriptions   Subscription[]
   orders          Order[]
+  apiKeys         ApiKey[]
 
   @@index([email])
   @@index([referralCode], map: "idx_referral_code")
   @@index([createdAt], map: "idx_user_created_at")
+  @@index([status], map: "idx_user_status")
   @@map("users")
+}
+
+// ========================================
+// API Key 管理系统
+// ========================================
+
+/// API Key 表 - 存储用户的 API 访问密钥
+model ApiKey {
+  id                    String   @id @default(uuid()) @db.Uuid
+  name                  String   @db.VarChar(100)
+  description           String?  @db.Text
+
+  // 密钥信息（存储哈希值）
+  keyHash               String   @unique @map("key_hash") @db.VarChar(64)
+
+  // 状态
+  isActive              Boolean  @default(true) @map("is_active")
+  isDeleted             Boolean  @default(false) @map("is_deleted")
+  deletedAt             DateTime? @map("deleted_at")
+  deletedBy             String?  @map("deleted_by") @db.VarChar(100)
+  deletedByType         String?  @map("deleted_by_type") @db.VarChar(20) // user | admin | system
+
+  // 限制配置
+  tokenLimit            BigInt   @default(0) @map("token_limit")
+  concurrencyLimit      Int      @default(0) @map("concurrency_limit")
+  rateLimitWindow       Int      @default(0) @map("rate_limit_window") // 分钟
+  rateLimitRequests     Int      @default(0) @map("rate_limit_requests")
+  rateLimitCost         Decimal  @default(0) @map("rate_limit_cost") @db.Decimal(10, 4)
+
+  // 费用限制
+  dailyCostLimit        Decimal  @default(0) @map("daily_cost_limit") @db.Decimal(10, 2)
+  totalCostLimit        Decimal  @default(0) @map("total_cost_limit") @db.Decimal(10, 2)
+  weeklyOpusCostLimit   Decimal  @default(0) @map("weekly_opus_cost_limit") @db.Decimal(10, 2)
+
+  // 权限配置
+  permissions           String   @default("all") @db.VarChar(50) // all | claude | gemini | openai | droid
+
+  // 账户绑定
+  claudeAccountId       String?  @map("claude_account_id") @db.VarChar(100)
+  claudeConsoleAccountId String? @map("claude_console_account_id") @db.VarChar(100)
+  geminiAccountId       String?  @map("gemini_account_id") @db.VarChar(100)
+  openaiAccountId       String?  @map("openai_account_id") @db.VarChar(100)
+  azureOpenaiAccountId  String?  @map("azure_openai_account_id") @db.VarChar(100)
+  bedrockAccountId      String?  @map("bedrock_account_id") @db.VarChar(100)
+  droidAccountId        String?  @map("droid_account_id") @db.VarChar(100)
+
+  // 模型限制
+  enableModelRestriction Boolean @default(false) @map("enable_model_restriction")
+  restrictedModels      Json     @default("[]") @map("restricted_models")
+
+  // 客户端限制
+  enableClientRestriction Boolean @default(false) @map("enable_client_restriction")
+  allowedClients        Json     @default("[]") @map("allowed_clients")
+
+  // 标签
+  tags                  Json     @default("[]")
+
+  // 过期设置
+  expirationMode        String   @default("fixed") @map("expiration_mode") @db.VarChar(20) // fixed | activation
+  expiresAt             DateTime? @map("expires_at")
+  activationDays        Int      @default(0) @map("activation_days")
+  activationUnit        String   @default("days") @map("activation_unit") @db.VarChar(10) // hours | days
+  isActivated           Boolean  @default(true) @map("is_activated")
+  activatedAt           DateTime? @map("activated_at")
+
+  // 图标
+  icon                  String?  @db.Text
+
+  // 创建者信息
+  createdBy             String   @default("admin") @map("created_by") @db.VarChar(50)
+
+  // 用户关联（可选，用户创建的 Key）
+  userId                String?  @map("user_id") @db.Uuid
+  user                  User?    @relation(fields: [userId], references: [id])
+  userUsername          String?  @map("user_username") @db.VarChar(100)
+
+  // 时间戳
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  lastUsedAt            DateTime? @map("last_used_at")
+
+  @@index([keyHash], map: "idx_api_key_hash")
+  @@index([userId], map: "idx_api_key_user_id")
+  @@index([isActive], map: "idx_api_key_is_active")
+  @@index([isDeleted], map: "idx_api_key_is_deleted")
+  @@index([createdAt], map: "idx_api_key_created_at")
+  @@index([permissions], map: "idx_api_key_permissions")
+  @@map("api_keys")
 }
 
 // ========================================

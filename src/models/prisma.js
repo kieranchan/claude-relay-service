@@ -39,15 +39,30 @@ function getPrismaClient() {
 
 /**
  * 连接数据库
+ * @param {Object} options - 连接选项
+ * @param {boolean} options.silent - 是否静默模式（不输出日志）
+ * @returns {Promise<boolean>}
  */
-async function connectDatabase() {
+async function connectDatabase(options = {}) {
+  const { silent = false } = options
   try {
     const client = getPrismaClient()
     await client.$connect()
-    logger.info('🗄️  PostgreSQL connected successfully')
+    if (!silent) {
+      logger.info('🗄️  PostgreSQL connected successfully')
+    }
     return true
   } catch (error) {
-    logger.error('❌ PostgreSQL connection failed:', error.message)
+    const errorMsg = `❌ PostgreSQL connection failed: ${error.message || error}`
+    if (!silent) {
+      logger.error(errorMsg)
+    } else {
+      console.error(errorMsg)
+    }
+    // 输出完整错误堆栈便于调试
+    if (process.env.DEBUG_DB === 'true') {
+      console.error('Full error:', error)
+    }
     return false
   }
 }
@@ -97,7 +112,21 @@ async function healthCheck() {
   }
 }
 
+// 创建一个代理对象，确保始终返回最新的 Prisma Client 实例
+const prismaProxy = new Proxy(
+  {},
+  {
+    get(target, prop) {
+      const client = getPrismaClient()
+      return client[prop]
+    }
+  }
+)
+
 module.exports = {
+  // 直接导出 prisma 实例（通过代理）
+  prisma: prismaProxy,
+  // 保持向后兼容的函数导出
   getPrismaClient,
   connectDatabase,
   disconnectDatabase,

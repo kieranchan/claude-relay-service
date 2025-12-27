@@ -454,6 +454,11 @@ Closes #123
 3. **敏感信息（密码、token）永远不要硬编码**
 4. **数据库变更必须有回滚方案**
 5. **代码提交前必须通过 lint 和 type-check**
+6. **🔴 测试完成后必须关闭所有启动的程序，不能有残留进程！**
+   - 关闭 `npm run dev` 服务
+   - 关闭 `prisma dev` 数据库
+   - 检查残留进程：`tasklist | findstr node`
+   - 强制关闭：`taskkill /F /PID <pid>`
 
 ---
 

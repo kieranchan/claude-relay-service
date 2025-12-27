@@ -7,10 +7,39 @@
  * 使用方法:
  *   node scripts/seed-plans.js
  *   npm run db:seed:plans
+ *
+ * 环境变量:
+ *   DEBUG_DB=true  显示详细数据库错误
  */
 
 require('dotenv').config()
-const { getPrismaClient, connectDatabase, disconnectDatabase } = require('../src/models/prisma')
+
+// 直接使用 PrismaClient，避免 logger 依赖问题
+const { PrismaClient } = require('@prisma/client')
+
+let prisma = null
+
+async function connectDB() {
+  try {
+    prisma = new PrismaClient()
+    await prisma.$connect()
+    console.log('✅ PostgreSQL connected')
+    return true
+  } catch (error) {
+    console.error(`❌ PostgreSQL connection failed: ${error.message}`)
+    if (process.env.DEBUG_DB === 'true') {
+      console.error('Full error:', error)
+    }
+    return false
+  }
+}
+
+async function disconnectDB() {
+  if (prisma) {
+    await prisma.$disconnect()
+    console.log('🔌 PostgreSQL disconnected')
+  }
+}
 
 // 示例套餐数据
 const samplePlans = [
@@ -273,13 +302,12 @@ async function seed() {
 
   try {
     // 连接数据库
-    const connected = await connectDatabase()
+    const connected = await connectDB()
     if (!connected) {
       console.error('❌ Failed to connect to database')
+      console.error('   Make sure prisma dev is running: cd project && prisma dev')
       process.exit(1)
     }
-
-    const prisma = getPrismaClient()
 
     // 清理现有数据（可选）
     const existingCount = await prisma.plan.count()
@@ -287,7 +315,7 @@ async function seed() {
       console.log(`⚠️  Found ${existingCount} existing plans`)
       console.log('   Skipping seed to avoid duplicate data')
       console.log('   To re-seed, first delete existing plans\n')
-      await disconnectDatabase()
+      await disconnectDB()
       return
     }
 
@@ -305,9 +333,12 @@ async function seed() {
     console.log(`   Total plans created: ${samplePlans.length}`)
   } catch (error) {
     console.error('\n❌ Seed failed:', error.message)
+    if (process.env.DEBUG_DB === 'true') {
+      console.error('Full error:', error)
+    }
     process.exit(1)
   } finally {
-    await disconnectDatabase()
+    await disconnectDB()
   }
 }
 

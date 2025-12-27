@@ -4,6 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 这个文件为 Claude Code (claude.ai/code) 提供在此代码库中工作的指导。
 
+## ⚠️ 重要：开发工作流
+
+**新功能开发必须严格遵循工作流文件：**
+- 📄 **工作流文件**: `Claude code workflow instruction.md`
+- 包含 7 个阶段：准备分析 → 数据库设计 → 代码实现 → 迁移测试 → 功能测试 → 文档安全 → 最终审查
+- 每个阶段完成后必须执行自动化检查点
+- **测试完成后必须关闭所有启动的程序（dev 服务、prisma dev 等），不能有残留进程**
+
+**PostgreSQL 数据库启动命令：**
+```bash
+cd F:\WorkSpace\WebStorm\claude-relay-service
+prisma dev
+```
+
 ## 项目概述
 
 Claude Relay Service 是一个多平台 AI API 中转服务，支持 **Claude (官方/Console)、Gemini、OpenAI Responses (Codex)、AWS Bedrock、Azure OpenAI、Droid (Factory.ai)、CCR** 等多种账户类型。提供完整的多账户管理、API Key 认证、代理配置、用户管理、LDAP认证、Webhook通知和现代化 Web 管理界面。该服务作为客户端（如 Claude Code、Gemini CLI、Codex、Droid CLI、Cherry Studio 等）与 AI API 之间的中间件，提供认证、限流、监控、定价计算、成本统计等功能。
@@ -167,6 +181,27 @@ npm run service:start:daemon  # 后台启动（推荐）
 npm run service:status        # 查看服务状态
 npm run service:logs          # 查看日志
 npm run service:stop          # 停止服务
+
+# PostgreSQL 数据库（Prisma Dev）
+cd F:\WorkSpace\WebStorm\claude-relay-service
+prisma dev                    # 启动本地 PostgreSQL 开发数据库（端口 51214）
+# 启动后按 h 或 t 可查看配置信息
+# 注意：需要全局安装 prisma（npm install -g prisma）
+
+# Prisma 数据库操作
+npx prisma generate           # 生成 Prisma 客户端
+npx prisma db push            # 同步 schema 到数据库
+npx prisma studio             # 打开数据库管理界面
+npx prisma migrate dev        # 创建并应用迁移
+````
+
+### 开发工作流规范
+
+**重要：测试完成后必须清理**
+- 每次功能开发/测试完成后，必须关闭所有启动的程序（dev 服务、prisma dev 等）
+- 不能有残留的 Node 进程或数据库连接
+- 使用 `tasklist | findstr node` 检查残留进程
+- 使用 `taskkill /F /PID <pid>` 强制关闭残留进程
 
 ### 开发环境配置
 
