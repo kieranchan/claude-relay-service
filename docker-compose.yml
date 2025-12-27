@@ -108,6 +108,26 @@ services:
       timeout: 10s
       retries: 3
 
+  # 🗄️ PostgreSQL Database (用于套餐管理等功能)
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-claude_relay}
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    networks:
+      - claude-relay-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # 📈 Redis Monitoring (Optional)
   redis-commander:
     image: rediscommander/redis-commander:latest

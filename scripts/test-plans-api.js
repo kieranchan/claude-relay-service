@@ -20,7 +20,7 @@ const ADMIN_TOKEN = process.argv[3] || ''
 
 // 测试用套餐数据
 const testPlan = {
-  id: 'test_plan_' + Date.now(),
+  id: `test_plan_${Date.now()}`,
   name: '测试套餐',
   description: '这是一个用于测试的套餐',
   type: 'subscription',
@@ -62,7 +62,7 @@ function request(method, path, body = null) {
       hostname: url.hostname,
       port: url.port || (isHttps ? 443 : 80),
       path: url.pathname + url.search,
-      method: method,
+      method,
       headers: {
         'Content-Type': 'application/json'
       }
@@ -80,7 +80,7 @@ function request(method, path, body = null) {
           const json = JSON.parse(data)
           resolve({ status: res.statusCode, data: json })
         } catch {
-          resolve({ status: res.statusCode, data: data })
+          resolve({ status: res.statusCode, data })
         }
       })
     })

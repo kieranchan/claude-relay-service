@@ -68,7 +68,7 @@ async function testRegisterSuccess() {
 
   const passed = status === 201 && data.success === true && data.data?.userId
   if (passed) {
-    userId = data.data.userId
+    ;({ userId } = data.data)
   }
   logTest('注册新用户', passed, passed ? `userId: ${userId}` : JSON.stringify(data))
   return passed
@@ -131,8 +131,7 @@ async function testLoginUnverified() {
 
   // 如果配置了跳过邮箱验证，则登录成功；否则返回403
   if (status === 200 && data.success && data.data?.accessToken) {
-    accessToken = data.data.accessToken
-    refreshToken = data.data.refreshToken
+    ;({ accessToken, refreshToken } = data.data)
     logTest('登录成功（邮箱验证已跳过）', true, `accessToken: ${accessToken.substring(0, 20)}...`)
     return true
   } else if (status === 403 && data.error?.code === 'AUTH_002') {
@@ -181,7 +180,7 @@ async function testRefreshTokenSuccess() {
 
   const passed = status === 200 && data.success && data.data?.accessToken
   if (passed) {
-    accessToken = data.data.accessToken
+    ;({ accessToken } = data.data)
   }
   logTest('Token刷新成功', passed, passed ? '获取新accessToken' : JSON.stringify(data))
   return passed
@@ -218,7 +217,7 @@ async function testAuthCheckLoggedIn() {
 
 // 测试12: 检查登录状态 - 未登录
 async function testAuthCheckNotLoggedIn() {
-  const { status, data } = await request('GET', '/api/v1/auth/check')
+  const { status } = await request('GET', '/api/v1/auth/check')
 
   const passed = status === 401
   logTest('检查登录状态 - 未登录应返回401', passed)
@@ -302,7 +301,7 @@ async function testAuthCheckAfterLogout() {
     return false
   }
 
-  const { status, data } = await request('GET', '/api/v1/auth/check', null, accessToken)
+  const { status } = await request('GET', '/api/v1/auth/check', null, accessToken)
 
   // 登出后应该返回401（token在黑名单中）
   const passed = status === 401

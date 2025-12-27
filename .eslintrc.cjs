@@ -5,6 +5,7 @@ module.exports = {
     es2021: true,
     commonjs: true
   },
+  ignorePatterns: ['src/generated/**/*'],
   extends: ['eslint:recommended', 'plugin:prettier/recommended'],
   parserOptions: {
     sourceType: 'module',

@@ -53,7 +53,7 @@ class GeminiCliValidator {
       // 2. 对于 /gemini 路径，检查是否包含 generateContent
       if (path.includes('generateContent')) {
         // 包含 generateContent 的路径需要验证 User-Agent
-        const geminiCliPattern = /^GeminiCLI\/v?[\d\.]+/i
+        const geminiCliPattern = /^GeminiCLI\/v?[\d.]+/i
         if (!geminiCliPattern.test(userAgent)) {
           logger.debug(
             `Gemini CLI validation failed - UA mismatch for generateContent: ${userAgent}`
