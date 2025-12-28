@@ -18,6 +18,21 @@ cd F:\WorkSpace\WebStorm\claude-relay-service
 prisma dev
 ```
 
+**重要限制：Claude Code 无法自行启动 Prisma 数据库**
+- 需要数据库时，必须请求用户手动执行 `prisma dev` 启动
+- Claude Code 不应尝试在后台运行 `prisma dev` 或类似的长时间运行进程
+- 用户启动数据库后，Claude Code 才能执行 `npx prisma db push`、`npx prisma migrate` 等命令
+
+**订单支付系统测试流程：**
+```bash
+prisma dev              # 1. 启动数据库（用户手动执行）
+npm run dev             # 2. 启动服务
+npm run test:orders     # 3. 运行订单 API 测试
+```
+- 测试脚本: `scripts/test-orders-api.js`
+- 数据库连接需要 `pgbouncer=true&connection_limit=1` 参数避免 prepared statement 冲突
+- 开发环境需设置 `SKIP_EMAIL_VERIFICATION=true` 跳过邮箱验证
+
 ## 项目概述
 
 Claude Relay Service 是一个多平台 AI API 中转服务，支持 **Claude (官方/Console)、Gemini、OpenAI Responses (Codex)、AWS Bedrock、Azure OpenAI、Droid (Factory.ai)、CCR** 等多种账户类型。提供完整的多账户管理、API Key 认证、代理配置、用户管理、LDAP认证、Webhook通知和现代化 Web 管理界面。该服务作为客户端（如 Claude Code、Gemini CLI、Codex、Droid CLI、Cherry Studio 等）与 AI API 之间的中间件，提供认证、限流、监控、定价计算、成本统计等功能。

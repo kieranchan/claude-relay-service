@@ -30,6 +30,7 @@ const webhookRoutes = require('./routes/webhook')
 const emailAuthRoutes = require('./routes/emailAuthRoutes')
 const emailUserRoutes = require('./routes/emailUserRoutes')
 const planRoutes = require('./routes/planRoutes')
+const orderRoutes = require('./routes/orderRoutes')
 
 // Import middleware
 const {
@@ -304,6 +305,8 @@ class Application {
       this.app.use('/api/v1/user', emailUserRoutes)
       // 📦 套餐管理路由
       this.app.use('/api/v1/plans', planRoutes)
+      // 🛒 订单管理路由
+      this.app.use('/api/v1/orders', orderRoutes)
 
       // 📧 邮箱验证页面（处理邮件中的验证链接）
       this.app.get('/verify-email', async (req, res) => {
@@ -812,6 +815,13 @@ class Application {
       logger.info('🧪 Account test scheduler service started')
     } else {
       logger.info('🧪 Account test scheduler service disabled')
+    }
+
+    // 📅 启动订单过期定时任务
+    // 每5分钟检查并处理过期的待支付订单
+    if (config.database && config.database.url) {
+      const { startOrderExpirationJob } = require('./jobs/orderExpiration')
+      startOrderExpirationJob()
     }
   }
 
