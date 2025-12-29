@@ -249,3 +249,6 @@ web/apiStats/
 web/admin-spa/dist/
 
 /src/generated/prisma
+  
+# Gemini specific directories  
+.gemini/ 
