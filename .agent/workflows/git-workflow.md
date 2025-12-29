@@ -8,8 +8,20 @@ description: Git 远程仓库管理和提交规范
 
 | 远程名称 | 仓库地址 | 用途 |
 |---------|---------|------|
-| `origin` | `git@github.com:kieranchan/claude-relay-service.git` | 你的仓库（推送用） |
-| `upstream` | `https://github.com/Wei-Shaw/claude-relay-service.git` | 原仓库（拉取更新用） |
+| `origin` | `<你的仓库地址>` | 你的 Fork 仓库（推送用） |
+| `upstream` | `https://github.com/Wei-Shaw/claude-relay-service.git` | 官方原仓库（用于拉取最新代码） |
+
+**配置命令示例：**
+```bash
+# 1. 检查当前远程
+git remote -v
+
+# 2. 如果没有 upstream，则添加官方仓库：
+git remote add upstream https://github.com/Wei-Shaw/claude-relay-service.git
+
+# 3. 确保 origin 指向你自己的 Fork：
+# git remote set-url origin <你的仓库SSH或HTTPS地址>
+```
 
 ## 常用命令
 
