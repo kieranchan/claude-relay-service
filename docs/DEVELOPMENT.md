@@ -105,3 +105,14 @@ npm run cli accounts list
 npm run data:export
 npm run data:debug
 ```
+
+## Git 仓库配置
+
+**Remotes**:
+- `origin`: `git@github.com:kieranchan/claude-relay-service.git` (你的私有仓库)
+- `upstream`: `https://github.com/Wei-Shaw/claude-relay-service.git` (上游仓库)
+
+**推荐工作流**:
+1. 提交: 使用 Conventional Commits (feat/fix/docs...)
+2. 推送: 直接使用 `git push`
+3. 更新: `git fetch upstream && git merge upstream/main`

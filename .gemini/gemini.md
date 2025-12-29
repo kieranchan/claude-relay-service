@@ -5,7 +5,7 @@
 ## 🚨 核心规则 (必需遵守)
 
 ### 1. 命令行执行 (Windows)
-> 参考: `.agent/workflows/command-execution.md`
+> 参考: 全局命令执行标准 (Global Command Execution)
 - **严禁** 直接使用 `run_command` 执行具体命令（例如 `npm run dev`）。
 - **必须** 使用两步走流程：
   1. `run_command(CommandLine="cmd", ...)` 启动终端。
