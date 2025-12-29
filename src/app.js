@@ -32,6 +32,7 @@ const emailUserRoutes = require('./routes/emailUserRoutes')
 const planRoutes = require('./routes/planRoutes')
 const orderRoutes = require('./routes/orderRoutes')
 const subscriptionRoutes = require('./routes/subscriptionRoutes')
+const couponRoutes = require('./routes/couponRoutes')
 
 // Import middleware
 const {
@@ -310,6 +311,8 @@ class Application {
       this.app.use('/api/v1/orders', orderRoutes)
       // 📋 订阅管理路由
       this.app.use('/api/v1/subscriptions', subscriptionRoutes)
+      // 🎫 优惠券路由
+      this.app.use('/api/v1/coupons', couponRoutes)
 
       // 📧 邮箱验证页面（处理邮件中的验证链接）
       this.app.get('/verify-email', async (req, res) => {
@@ -831,9 +834,13 @@ class Application {
       const { startExpirationReminderJob } = require('./jobs/expirationReminder')
       const { startSubscriptionExpirationJob } = require('./jobs/subscriptionExpiration')
 
-      startAutoRenewalJob() // 每天凌晨2点执行自动续费
+      startAutoRenewalJob() // 每天凌暨2点执行自动续费
       startExpirationReminderJob() // 每天早上9点发送到期提醒
       startSubscriptionExpirationJob() // 每小时处理过期订阅
+
+      // 🎫 启动优惠券过期定时任务
+      const { startCouponExpirationJob } = require('./jobs/couponExpirationJob')
+      startCouponExpirationJob() // 每天凌暨1点标记过期优惠券
     }
   }
 

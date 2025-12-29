@@ -93,6 +93,7 @@ model User {
   subscriptions   Subscription[]
   orders          Order[]
   apiKeys         ApiKey[]
+  userCoupons     UserCoupon[]
 
   @@index([email])
   @@index([referralCode], map: "idx_referral_code")
@@ -469,4 +470,106 @@ model Refund {
   @@index([status], map: "idx_refund_status")
   @@index([createdAt], map: "idx_refund_created_at")
   @@map("refunds")
+}
+
+// ========================================
+// 优惠券系统
+// ========================================
+
+/// 优惠券模板表 - 管理优惠券活动
+model Coupon {
+  id                  String   @id @db.VarChar(50)
+  name                String   @db.VarChar(100)
+  description         String?  @db.Text
+  code                String?  @unique @db.VarChar(50)
+
+  // 优惠类型：percentage | fixed_amount | full_reduction
+  type                String   @db.VarChar(20)
+  value               Decimal  @db.Decimal(10, 2)
+
+  // 使用条件
+  minPurchaseAmount   Decimal? @map("min_purchase_amount") @db.Decimal(10, 2)
+  maxDiscountAmount   Decimal? @map("max_discount_amount") @db.Decimal(10, 2)
+  applicablePlans     Json?    @map("applicable_plans")
+  excludePlans        Json?    @map("exclude_plans")
+
+  // 数量限制
+  totalQuantity       Int?     @map("total_quantity")
+  receivedCount       Int      @default(0) @map("received_count")
+  usedCount           Int      @default(0) @map("used_count")
+  perUserLimit        Int      @default(1) @map("per_user_limit")
+
+  // 时间限制
+  startTime           DateTime @map("start_time")
+  endTime             DateTime @map("end_time")
+
+  // 状态：active | inactive | expired
+  status              String   @default("active") @db.VarChar(20)
+  stackable           Boolean  @default(false)
+
+  // 发放方式：public | code | targeted
+  distributionType    String   @map("distribution_type") @db.VarChar(20)
+
+  createdBy           String?  @map("created_by") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  userCoupons         UserCoupon[]
+  couponUsages        CouponUsage[]
+
+  @@index([code], map: "idx_coupon_code")
+  @@index([status], map: "idx_coupon_status")
+  @@index([startTime], map: "idx_coupon_start_time")
+  @@index([endTime], map: "idx_coupon_end_time")
+  @@index([distributionType], map: "idx_coupon_distribution_type")
+  @@map("coupons")
+}
+
+/// 用户优惠券表 - 用户领取/持有的优惠券
+model UserCoupon {
+  id          BigInt    @id @default(autoincrement())
+  userId      String    @map("user_id") @db.Uuid
+  couponId    String    @map("coupon_id") @db.VarChar(50)
+
+  // 状态：available | used | expired
+  status      String    @default("available") @db.VarChar(20)
+  orderId     String?   @map("order_id") @db.VarChar(50)
+  usedAt      DateTime? @map("used_at")
+  receivedAt  DateTime  @default(now()) @map("received_at")
+  expireAt    DateTime? @map("expire_at")
+
+  user        User      @relation(fields: [userId], references: [id])
+  coupon      Coupon    @relation(fields: [couponId], references: [id])
+  couponUsages CouponUsage[]
+
+  @@unique([userId, couponId], map: "idx_user_coupon_unique")
+  @@index([userId], map: "idx_user_coupon_user_id")
+  @@index([couponId], map: "idx_user_coupon_coupon_id")
+  @@index([status], map: "idx_user_coupon_status")
+  @@index([expireAt], map: "idx_user_coupon_expire_at")
+  @@map("user_coupons")
+}
+
+/// 优惠券使用记录表 - 记录优惠券使用详情
+model CouponUsage {
+  id              BigInt   @id @default(autoincrement())
+  userCouponId    BigInt   @map("user_coupon_id")
+  userId          String   @map("user_id") @db.Uuid
+  couponId        String   @map("coupon_id") @db.VarChar(50)
+  orderId         String   @map("order_id") @db.VarChar(50)
+
+  originalPrice   Decimal  @map("original_price") @db.Decimal(10, 2)
+  discountAmount  Decimal  @map("discount_amount") @db.Decimal(10, 2)
+  finalPrice      Decimal  @map("final_price") @db.Decimal(10, 2)
+
+  usedAt          DateTime @default(now()) @map("used_at")
+
+  userCoupon      UserCoupon @relation(fields: [userCouponId], references: [id])
+  coupon          Coupon     @relation(fields: [couponId], references: [id])
+
+  @@index([userId], map: "idx_coupon_usage_user_id")
+  @@index([couponId], map: "idx_coupon_usage_coupon_id")
+  @@index([orderId], map: "idx_coupon_usage_order_id")
+  @@index([usedAt], map: "idx_coupon_usage_used_at")
+  @@map("coupon_usages")
 }

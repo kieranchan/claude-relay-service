@@ -37,6 +37,8 @@ git status
 
 1. 创建/更新 Model/Entity 层
 2. 实现 Service/业务逻辑层
+   - **强制：采用模块化结构**（如 `src/services/<feature>/index.js`）
+   - **禁止：创建巨型单文件 Service**
 3. 实现 Controller/API 层
 4. 添加输入验证
 5. 实现错误处理和异常捕获

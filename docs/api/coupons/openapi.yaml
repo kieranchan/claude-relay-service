@@ -1,0 +1,541 @@
+openapi: 3.0.3
+info:
+  title: Claude Relay Service - Coupon API
+  description: |
+    优惠券系统 API 文档
+
+    ## 权限说明
+    - 用户端接口需要 `Bearer Token` 用户权限
+    - 管理端接口需要 `Bearer Token` 管理员权限
+
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@example.com
+
+servers:
+  - url: http://localhost:3000
+    description: 开发环境
+
+tags:
+  - name: Coupons
+    description: 用户端优惠券接口（领取、查看、验证）
+  - name: AdminCoupons
+    description: 管理端优惠券接口（CRUD、分发、统计）
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ==================== 用户端接口 ====================
+  /api/v1/coupons/available:
+    get:
+      tags:
+        - Coupons
+      summary: 获取可领取的优惠券
+      description: 获取当前用户可以领取的公开优惠券列表
+      operationId: getAvailableCoupons
+      responses:
+        "200":
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/Coupon"
+                    - type: object
+                      properties:
+                        can_receive:
+                          type: boolean
+                          description: 是否可领取
+                        received:
+                          type: boolean
+                          description: 是否已领取
+                        remaining_quantity:
+                          type: integer
+                          nullable: true
+                          description: 剩余数量
+
+  /api/v1/coupons/my:
+    get:
+      tags:
+        - Coupons
+      summary: 获取我的优惠券
+      description: 获取当前用户已领取的优惠券列表
+      operationId: getMyCoupons
+      parameters:
+        - name: status
+          in: query
+          description: 状态过滤 (available/used/expired)
+          schema:
+            type: string
+            enum: [available, used, expired]
+      responses:
+        "200":
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserCoupon"
+
+  /api/v1/coupons/receive/{id}:
+    post:
+      tags:
+        - Coupons
+      summary: 领取优惠券
+      description: 领取指定的优惠券
+      operationId: receiveCoupon
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 领取成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_coupon_id:
+                    type: string
+                  coupon:
+                    $ref: "#/components/schemas/Coupon"
+                  expire_at:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/coupons/exchange:
+    post:
+      tags:
+        - Coupons
+      summary: 兑换优惠码
+      description: 使用优惠码兑换优惠券
+      operationId: exchangeCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+      responses:
+        "200":
+          description: 兑换成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_coupon_id:
+                    type: string
+                  coupon:
+                    $ref: "#/components/schemas/Coupon"
+                  expire_at:
+                    type: string
+                    format: date-time
+
+  /api/v1/coupons/validate:
+    post:
+      tags:
+        - Coupons
+      summary: 验证优惠券
+      description: 验证优惠券是否适用于当前订单
+      operationId: validateCoupon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+                - amount
+              properties:
+                code:
+                  type: string
+                  description: 优惠券ID或优惠码
+                plan_id:
+                  type: string
+                  description: 套餐ID（可选）
+                amount:
+                  type: number
+                  description: 订单金额
+      responses:
+        "200":
+          description: 验证结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  reason:
+                    type: string
+                  discount_amount:
+                    type: number
+                  final_amount:
+                    type: number
+                  coupon:
+                    $ref: "#/components/schemas/Coupon"
+
+  # ==================== 管理端接口 ====================
+  /admin/coupons:
+    get:
+      tags:
+        - AdminCoupons
+      summary: 获取优惠券列表
+      operationId: adminGetCoupons
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Coupon"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+
+    post:
+      tags:
+        - AdminCoupons
+      summary: 创建优惠券
+      operationId: createCoupon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCouponRequest"
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Coupon"
+
+  /admin/coupons/{id}:
+    put:
+      tags:
+        - AdminCoupons
+      summary: 更新优惠券
+      operationId: updateCoupon
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCouponRequest"
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Coupon"
+
+    delete:
+      tags:
+        - AdminCoupons
+      summary: 删除优惠券
+      operationId: deleteCoupon
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  archived:
+                    type: boolean
+
+  /admin/coupons/{id}/stats:
+    get:
+      tags:
+        - AdminCoupons
+      summary: 获取优惠券统计
+      operationId: getCouponStats
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  coupon_id:
+                    type: string
+                  received_count:
+                    type: integer
+                  used_count:
+                    type: integer
+                  usage_rate:
+                    type: number
+                  total_discount:
+                    type: number
+                  total_revenue:
+                    type: number
+
+  /admin/coupons/{id}/distribute:
+    post:
+      tags:
+        - AdminCoupons
+      summary: 批量分发优惠券
+      operationId: distributeCoupons
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_type
+              properties:
+                target_type:
+                  type: string
+                  enum: [user_ids, user_filter]
+                targets:
+                  oneOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: object
+                expire_days:
+                  type: integer
+      responses:
+        "200":
+          description: 分发成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  distributed_count:
+                    type: integer
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: 请求参数错误
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: 未授权
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        pages:
+          type: integer
+
+    Coupon:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        code:
+          type: string
+        type:
+          type: string
+          enum: [fixed_amount, percentage, full_reduction]
+        value:
+          type: number
+        min_purchase_amount:
+          type: number
+          nullable: true
+        max_discount_amount:
+          type: number
+          nullable: true
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, inactive, expired]
+        distribution_type:
+          type: string
+          enum: [public, private, code]
+        total_quantity:
+          type: integer
+          nullable: true
+        received_count:
+          type: integer
+        used_count:
+          type: integer
+
+    UserCoupon:
+      type: object
+      properties:
+        user_coupon_id:
+          type: string
+        coupon:
+          $ref: "#/components/schemas/Coupon"
+        status:
+          type: string
+          enum: [available, used, expired]
+        received_at:
+          type: string
+          format: date-time
+        expire_at:
+          type: string
+          format: date-time
+        used_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateCouponRequest:
+      type: object
+      required:
+        - id
+        - name
+        - type
+        - value
+        - start_time
+        - end_time
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        code:
+          type: string
+        type:
+          type: string
+          enum: [fixed_amount, percentage, full_reduction]
+        value:
+          type: number
+        min_purchase_amount:
+          type: number
+        max_discount_amount:
+          type: number
+        applicable_plans:
+          type: array
+          items:
+            type: string
+        exclude_plans:
+          type: array
+          items:
+            type: string
+        total_quantity:
+          type: integer
+        per_user_limit:
+          type: integer
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        distribution_type:
+          type: string
+          enum: [public, private, code]
+          default: public
+        stackable:
+          type: boolean
+          default: false
