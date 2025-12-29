@@ -212,6 +212,12 @@ npx prisma migrate dev        # 创建并应用迁移
 
 ### 开发工作流规范
 
+**重要：终端命令执行方式**
+- 由于 Windows cmd 环境下 `run_command` 工具可能存在命令丢失问题
+- **推荐使用 `send_command_input` 工具发送命令到已启动的终端**
+- 工作流程：先用 `run_command` 启动终端，再用 `send_command_input` 发送实际命令
+- 详见工作流文件：`.agent/workflows/command-execution.md`
+
 **重要：测试完成后必须清理**
 - 每次功能开发/测试完成后，必须关闭所有启动的程序（dev 服务、prisma dev 等）
 - 不能有残留的 Node 进程或数据库连接
