@@ -199,6 +199,9 @@ model Subscription {
   userId          String   @map("user_id") @db.Uuid
   planId          String   @map("plan_id") @db.VarChar(50)
 
+  // 订单关联
+  orderId         String?  @map("order_id") @db.VarChar(50)
+
   // 套餐快照 (防止套餐变更影响已有订阅)
   planSnapshot    Json     @map("plan_snapshot")
 
@@ -210,10 +213,17 @@ model Subscription {
   expireDate      DateTime @map("expire_date") @db.Date
   nextBillingDate DateTime? @map("next_billing_date") @db.Date
   cancelledAt     DateTime? @map("cancelled_at")
+  suspendedAt     DateTime? @map("suspended_at")
 
   // 自动续费
   autoRenew       Boolean  @default(true) @map("auto_renew")
   autoRenewFailedCount Int @default(0) @map("auto_renew_failed_count")
+  lastRenewAttemptAt DateTime? @map("last_renew_attempt_at")
+
+  // 升级信息
+  upgradedFromId  String?  @map("upgraded_from") @db.Uuid
+  upgradedFrom    Subscription? @relation("SubscriptionUpgrade", fields: [upgradedFromId], references: [id])
+  upgradedTo      Subscription[] @relation("SubscriptionUpgrade")
 
   // 时间戳
   createdAt       DateTime @default(now()) @map("created_at")
@@ -222,11 +232,95 @@ model Subscription {
   // 关联
   user            User     @relation(fields: [userId], references: [id])
   plan            Plan     @relation(fields: [planId], references: [id])
+  order           Order?   @relation(fields: [orderId], references: [id])
+  changes         SubscriptionChange[]
+  renewals        SubscriptionRenewal[]
 
   @@index([userId], map: "idx_subscription_user_id")
   @@index([status], map: "idx_subscription_status")
   @@index([expireDate], map: "idx_expire_date")
+  @@index([nextBillingDate], map: "idx_next_billing_date")
+  @@index([autoRenew], map: "idx_auto_renew")
   @@map("subscriptions")
+}
+
+// ========================================
+// 订阅变更记录
+// ========================================
+
+/// 订阅变更记录表 - 记录订阅的所有变更历史
+model SubscriptionChange {
+  id              BigInt   @id @default(autoincrement())
+  subscriptionId  String   @map("subscription_id") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+
+  // 变更类型: created | renewed | upgraded | downgraded | cancelled | suspended | resumed | expired | auto_renew_enabled | auto_renew_disabled | scheduled_upgrade
+  changeType      String   @map("change_type") @db.VarChar(30)
+
+  // 变更前后对比
+  oldPlanId       String?  @map("old_plan_id") @db.VarChar(50)
+  newPlanId       String?  @map("new_plan_id") @db.VarChar(50)
+  oldStatus       String?  @map("old_status") @db.VarChar(20)
+  newStatus       String?  @map("new_status") @db.VarChar(20)
+  oldExpireDate   DateTime? @map("old_expire_date") @db.Date
+  newExpireDate   DateTime? @map("new_expire_date") @db.Date
+
+  // 关联信息
+  relatedOrderId  String?  @map("related_order_id") @db.VarChar(50)
+
+  // 变更原因
+  reason          String?  @db.Text
+
+  // 操作人
+  operatedBy      String?  @map("operated_by") @db.Uuid
+
+  // 时间戳
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // 关联
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId], map: "idx_change_subscription_id")
+  @@index([userId], map: "idx_change_user_id")
+  @@index([changeType], map: "idx_change_type")
+  @@index([createdAt], map: "idx_change_created_at")
+  @@map("subscription_changes")
+}
+
+// ========================================
+// 订阅续费记录
+// ========================================
+
+/// 订阅续费记录表 - 记录所有续费尝试
+model SubscriptionRenewal {
+  id              BigInt   @id @default(autoincrement())
+  subscriptionId  String   @map("subscription_id") @db.Uuid
+  orderId         String?  @map("order_id") @db.VarChar(50)
+
+  // 续费信息
+  renewalType     String   @map("renewal_type") @db.VarChar(20) // auto | manual
+  renewalPrice    Decimal  @map("renewal_price") @db.Decimal(10, 2)
+
+  // 状态: pending | success | failed
+  status          String   @db.VarChar(20)
+
+  // 失败信息
+  failureReason   String?  @map("failure_reason") @db.Text
+  retryCount      Int      @default(0) @map("retry_count")
+  nextRetryAt     DateTime? @map("next_retry_at")
+
+  // 时间信息
+  attemptedAt     DateTime @default(now()) @map("attempted_at")
+  succeededAt     DateTime? @map("succeeded_at")
+
+  // 关联
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId], map: "idx_renewal_subscription_id")
+  @@index([orderId], map: "idx_renewal_order_id")
+  @@index([status], map: "idx_renewal_status")
+  @@index([nextRetryAt], map: "idx_renewal_next_retry_at")
+  @@map("subscription_renewals")
 }
 
 // ========================================
@@ -285,6 +379,7 @@ model Order {
   plan            Plan     @relation(fields: [planId], references: [id])
   paymentCallbacks PaymentCallback[]
   refunds         Refund[]
+  subscriptions   Subscription[]
 
   @@index([userId], map: "idx_order_user_id")
   @@index([planId], map: "idx_order_plan_id")

@@ -320,6 +320,73 @@ router.post(
   }
 )
 
+/**
+ * POST /api/v1/orders/:id/simulate-pay
+ * 模拟支付成功（仅用于开发/测试环境）
+ */
+router.post(
+  '/:id/simulate-pay',
+  authenticateJwt,
+  [param('id').notEmpty()],
+  handleValidation,
+  async (req, res) => {
+    // 仅在开发环境或显式开启时可用
+    const allowSimulatePay =
+      process.env.NODE_ENV !== 'production' || process.env.ALLOW_SIMULATE_PAY === 'true'
+
+    if (!allowSimulatePay) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: '生产环境不支持模拟支付'
+        }
+      })
+    }
+
+    try {
+      const userId = req.emailUser.id
+      const orderId = req.params.id
+
+      // 验证订单归属和状态
+      const order = await orderService.getOrderById(orderId, userId)
+      if (order.status !== 'pending') {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_ORDER_STATUS',
+            message: `订单状态无效: ${order.status}`
+          }
+        })
+      }
+
+      // 模拟支付回调数据
+      const transactionId = `MOCK_TXN_${Date.now()}`
+
+      // 调用支付成功处理
+      await orderService.handlePaymentSuccess(orderId, transactionId)
+
+      res.json({
+        success: true,
+        message: '模拟支付成功',
+        data: {
+          orderId,
+          transactionId
+        }
+      })
+    } catch (error) {
+      logger.error(`模拟支付失败: ${error.message}`)
+      res.status(500).json({
+        success: false,
+        error: {
+          code: error.code || 'PAYMENT_ERROR',
+          message: error.message
+        }
+      })
+    }
+  }
+)
+
 // ========================================
 // 支付回调路由（公开接口，无需认证）
 // ========================================

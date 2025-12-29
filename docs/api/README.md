@@ -22,6 +22,8 @@ docs/api/
 |------|--------|------|
 | 邮箱认证 | [email-auth/](./email-auth/) | 用户注册、登录、邮箱验证、密码重置、API Key 管理 |
 | 套餐管理 | [plans/](./plans/) | 套餐 CRUD、上下架、统计、订阅管理 |
+| 订阅管理 | [subscriptions/](./subscriptions/) | 用户订阅查询、升级、取消、续费 |
+| 订单支付 | [orders/](./orders/) | 订单创建、列表、支付流程、回调处理 |
 
 > 新增功能时，请更新此列表
 

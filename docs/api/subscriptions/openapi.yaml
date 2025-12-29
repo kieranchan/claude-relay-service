@@ -1,0 +1,262 @@
+openapi: 3.0.0
+info:
+  title: 订阅管理 API
+  description: 处理用户订阅的查询、升级、取消和续费操作
+  version: 1.0.0
+servers:
+  - url: /api/v1/subscriptions
+    description: 订阅 API 基础路径
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        planId:
+          type: string
+        status:
+          type: string
+          enum: [active, past_due, canceled, paused, expired]
+        startDate:
+          type: string
+          format: date-time
+        expireDate:
+          type: string
+          format: date-time
+        autoRenew:
+          type: boolean
+        plan:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            features:
+              type: object
+
+    ErrorParams:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+
+security:
+  - bearerAuth: []
+
+paths:
+  /current:
+    get:
+      summary: 获取当前订阅
+      description: 获取用户当前的有效订阅信息
+      responses:
+        '200':
+          description: 成功获取
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Subscription'
+
+  /history:
+    get:
+      summary: 获取订阅历史
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+          description: 页码
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+          description: 每页数量
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Subscription'
+                  pagination:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      pages:
+                        type: integer
+
+  /upgrade:
+    post:
+      summary: 升级订阅
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_plan_id
+              properties:
+                target_plan_id:
+                  type: string
+                  description: 目标套餐ID
+                upgrade_mode:
+                  type: string
+                  enum: [immediate, next_cycle]
+                  default: immediate
+                  description: 升级模式（立即生效或下个周期生效）
+      responses:
+        '200':
+          description: 升级请求已接受
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+
+  /cancel:
+    post:
+      summary: 取消订阅
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cancel_mode:
+                  type: string
+                  enum: [immediate, end_of_cycle]
+                  default: end_of_cycle
+                  description: 取消模式
+                reason:
+                  type: string
+                  description: 取消原因
+      responses:
+        '200':
+          description: 订阅已取消
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+
+  /toggle-renew:
+    post:
+      summary: 切换自动续费状态
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - auto_renew
+              properties:
+                auto_renew:
+                  type: boolean
+                  description: 是否开启自动续费
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object
+
+  /renew:
+    post:
+      summary: 手动续费
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - payment_method
+              properties:
+                payment_method:
+                  type: string
+                  enum: [alipay, wechat, stripe]
+                  description: 支付方式
+      responses:
+        '200':
+          description: 续费订单已创建
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  data:
+                    type: object

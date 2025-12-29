@@ -7,6 +7,7 @@ const { prisma } = require('../../models/prisma')
 const logger = require('../../utils/logger')
 const { generateOrderId } = require('../../utils/orderIdGenerator')
 const { calculatePrice } = require('../../utils/priceCalculator')
+const subscriptionService = require('../subscriptions/subscriptionService')
 
 // 订单过期时间（分钟）
 const ORDER_EXPIRE_MINUTES = 15
@@ -277,33 +278,8 @@ async function handlePaymentSuccess(orderId, transactionId) {
       }
     })
 
-    // 2. 创建订阅记录
-    const planSnapshot =
-      typeof order.planSnapshot === 'string' ? JSON.parse(order.planSnapshot) : order.planSnapshot
-
-    const billingCycle = planSnapshot.billingCycle || 'monthly'
-    const startDate = new Date()
-    const expireDate = new Date()
-
-    if (billingCycle === 'monthly') {
-      expireDate.setMonth(expireDate.getMonth() + 1)
-    } else if (billingCycle === 'yearly') {
-      expireDate.setFullYear(expireDate.getFullYear() + 1)
-    } else if (billingCycle === 'lifetime') {
-      expireDate.setFullYear(expireDate.getFullYear() + 100) // 终身
-    }
-
-    const subscription = await tx.subscription.create({
-      data: {
-        userId: order.userId,
-        planId: order.planId,
-        planSnapshot: order.planSnapshot,
-        status: 'active',
-        startDate,
-        expireDate,
-        autoRenew: billingCycle !== 'lifetime'
-      }
-    })
+    // 2. 创建订阅记录（使用订阅服务）
+    const subscription = await subscriptionService.createFromOrder(order, tx)
 
     // 3. 更新套餐统计
     await tx.plan.update({

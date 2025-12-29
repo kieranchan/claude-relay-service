@@ -1,0 +1,277 @@
+openapi: 3.0.0
+info:
+  title: 订单与支付 API
+  description: 处理订单创建、查询、支付和撤销操作
+  version: 1.0.0
+servers:
+  - url: /api/v1/orders
+    description: 订单 API 基础路径
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          description: 业务订单号
+        userId:
+          type: string
+        planId:
+          type: string
+        amount:
+          type: number
+        status:
+          type: string
+          enum: [pending, paid, cancelled, expired, refunded]
+        paymentMethod:
+          type: string
+          enum: [alipay, wechat, stripe]
+        createdAt:
+          type: string
+          format: date-time
+        expireAt:
+          type: string
+          format: date-time
+
+    PaymentInfo:
+      type: object
+      properties:
+        orderId:
+          type: string
+        paymentMethod:
+          type: string
+        paymentInfo:
+          type: object
+          description: 具体的支付参数（如二维码、跳转链接等）
+        expireAt:
+          type: string
+          format: date-time
+
+security:
+  - bearerAuth: []
+
+paths:
+  /payment-methods:
+    get:
+      summary: 获取可用支付方式
+      security: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        name:
+                          type: string
+
+  /create:
+    post:
+      summary: 创建订单
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - plan_id
+                - payment_method
+              properties:
+                plan_id:
+                  type: string
+                payment_method:
+                  type: string
+                  enum: [alipay, wechat, stripe]
+                coupon_code:
+                  type: string
+      responses:
+        '201':
+          description: 订单创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Order'
+
+  /list:
+    get:
+      summary: 获取订单列表
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, paid, cancelled, expired, refunded]
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+                  pagination:
+                    type: object
+
+  /{id}:
+    get:
+      summary: 获取订单详情
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Order'
+
+  /{id}/pay:
+    post:
+      summary: 发起支付
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - payment_method
+              properties:
+                payment_method:
+                  type: string
+                  enum: [alipay, wechat, stripe]
+                return_url:
+                  type: string
+      responses:
+        '200':
+          description: 获取支付参数成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/PaymentInfo'
+
+  /{id}/cancel:
+    post:
+      summary: 取消订单
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: 订单已取消
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+
+  /{id}/status:
+    get:
+      summary: 查询订单状态
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                      paymentStatus:
+                        type: string

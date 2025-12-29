@@ -93,8 +93,173 @@ function formatDuration(seconds) {
   }
 }
 
+// ========================================
+// 订阅系统日期函数
+// ========================================
+
+/**
+ * 增加天数
+ * @param {Date|string} date - 起始日期
+ * @param {number} days - 天数
+ * @returns {Date} 新日期
+ */
+function addDays(date, days) {
+  const result = new Date(date)
+  result.setDate(result.getDate() + days)
+  return result
+}
+
+/**
+ * 增加月份
+ * @param {Date|string} date - 起始日期
+ * @param {number} months - 月数
+ * @returns {Date} 新日期
+ */
+function addMonths(date, months) {
+  const result = new Date(date)
+  result.setMonth(result.getMonth() + months)
+  return result
+}
+
+/**
+ * 增加年份
+ * @param {Date|string} date - 起始日期
+ * @param {number} years - 年数
+ * @returns {Date} 新日期
+ */
+function addYears(date, years) {
+  const result = new Date(date)
+  result.setFullYear(result.getFullYear() + years)
+  return result
+}
+
+/**
+ * 格式化日期为 YYYY-MM-DD
+ * @param {Date|string} date - 日期
+ * @returns {string} 格式化后的日期字符串
+ */
+function formatDate(date) {
+  const d = new Date(date)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/**
+ * 计算两个日期之间的天数
+ * @param {Date|string} date1 - 日期1
+ * @param {Date|string} date2 - 日期2
+ * @returns {number} 天数差（绝对值）
+ */
+function daysBetween(date1, date2) {
+  const oneDay = 24 * 60 * 60 * 1000
+  const d1 = new Date(date1)
+  const d2 = new Date(date2)
+  return Math.round(Math.abs((d1 - d2) / oneDay))
+}
+
+/**
+ * 计算从现在到指定日期的剩余天数
+ * @param {Date|string} expireDate - 到期日期
+ * @returns {number} 剩余天数
+ */
+function daysRemaining(expireDate) {
+  const now = new Date()
+  const expire = new Date(expireDate)
+  const diff = expire - now
+  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
+/**
+ * 根据计费周期计算到期日期
+ * @param {Date|string} startDate - 起始日期
+ * @param {string} billingCycle - 计费周期 (monthly | quarterly | yearly | lifetime)
+ * @returns {Date} 到期日期
+ */
+function calculateExpireDate(startDate, billingCycle) {
+  const date = new Date(startDate)
+
+  switch (billingCycle) {
+    case 'monthly':
+      return addMonths(date, 1)
+    case 'quarterly':
+      return addMonths(date, 3)
+    case 'yearly':
+      return addYears(date, 1)
+    case 'lifetime':
+      return addYears(date, 100) // 100年后
+    default:
+      return addMonths(date, 1)
+  }
+}
+
+/**
+ * 根据计费周期获取总天数
+ * @param {string} billingCycle - 计费周期
+ * @returns {number} 周期天数
+ */
+function getCycleDays(billingCycle) {
+  switch (billingCycle) {
+    case 'monthly':
+      return 30
+    case 'quarterly':
+      return 90
+    case 'yearly':
+      return 365
+    case 'lifetime':
+      return 36500 // 100年
+    default:
+      return 30
+  }
+}
+
+/**
+ * 判断日期是否已过期
+ * @param {Date|string} date - 日期
+ * @returns {boolean} 是否已过期
+ */
+function isExpired(date) {
+  return new Date(date) < new Date()
+}
+
+/**
+ * 判断日期是否在指定天数内
+ * @param {Date|string} date - 日期
+ * @param {number} days - 天数
+ * @returns {boolean} 是否在指定天数内
+ */
+function isWithinDays(date, days) {
+  const targetDate = new Date(date)
+  const now = new Date()
+  const futureDate = addDays(now, days)
+  return targetDate > now && targetDate <= futureDate
+}
+
+/**
+ * 获取今天的日期（不含时间）
+ * @returns {Date} 今天的日期
+ */
+function getToday() {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return today
+}
+
 module.exports = {
   formatDateWithTimezone,
   getISOStringWithTimezone,
-  formatDuration
+  formatDuration,
+  // 订阅系统日期函数
+  addDays,
+  addMonths,
+  addYears,
+  formatDate,
+  daysBetween,
+  daysRemaining,
+  calculateExpireDate,
+  getCycleDays,
+  isExpired,
+  isWithinDays,
+  getToday
 }
