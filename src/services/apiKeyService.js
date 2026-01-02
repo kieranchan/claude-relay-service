@@ -100,6 +100,8 @@ class ApiKeyService {
       enableClientRestriction = false,
       allowedClients = [],
       dailyCostLimit = 0,
+      weeklyCostLimit = 0, // 新增：每周费用限制
+      monthlyCostLimit = 0, // 新增：每月费用限制
       totalCostLimit = 0,
       weeklyOpusCostLimit = 0,
       tags = [],
@@ -128,6 +130,8 @@ class ApiKeyService {
         rateLimitRequests: rateLimitRequests || 0,
         rateLimitCost: rateLimitCost || 0,
         dailyCostLimit: dailyCostLimit || 0,
+        weeklyCostLimit: weeklyCostLimit || 0,
+        monthlyCostLimit: monthlyCostLimit || 0,
         totalCostLimit: totalCostLimit || 0,
         weeklyOpusCostLimit: weeklyOpusCostLimit || 0,
         permissions: permissions || 'all',
@@ -156,12 +160,33 @@ class ApiKeyService {
       }
     })
 
-    // 建立 Redis 哈希映射（用于 O(1) 查找验证）
-    await redis.setApiKeyHash(hashedKey, {
-      id: apiKeyRecord.id,
-      name: apiKeyRecord.name,
-      isActive: apiKeyRecord.isActive ? 'true' : 'false'
+    // 格式化 Redis 数据
+    const redisKeyData = {
+      ...apiKeyRecord,
+      tokenLimit: apiKeyRecord.tokenLimit.toString(),
+      expiresAt: apiKeyRecord.expiresAt ? apiKeyRecord.expiresAt.toISOString() : '',
+      createdAt: apiKeyRecord.createdAt.toISOString(),
+      updatedAt: apiKeyRecord.updatedAt.toISOString(),
+      isActivated: apiKeyRecord.isActivated ? 'true' : 'false',
+      activatedAt: apiKeyRecord.activatedAt ? apiKeyRecord.activatedAt.toISOString() : '',
+      isActive: apiKeyRecord.isActive ? 'true' : 'false',
+      enableModelRestriction: apiKeyRecord.enableModelRestriction ? 'true' : 'false',
+      enableClientRestriction: apiKeyRecord.enableClientRestriction ? 'true' : 'false',
+      isDeleted: apiKeyRecord.isDeleted ? 'true' : 'false',
+      restrictedModels: JSON.stringify(apiKeyRecord.restrictedModels || []),
+      allowedClients: JSON.stringify(apiKeyRecord.allowedClients || []),
+      tags: JSON.stringify(apiKeyRecord.tags || [])
+    }
+
+    // 移除 null 值
+    Object.keys(redisKeyData).forEach((key) => {
+      if (redisKeyData[key] === null || redisKeyData[key] === undefined) {
+        delete redisKeyData[key]
+      }
     })
+
+    // 存储到 Redis (同时建立哈希映射)
+    await redis.setApiKey(apiKeyRecord.id, redisKeyData, hashedKey)
 
     // 同步添加到费用排序索引
     try {
@@ -197,6 +222,7 @@ class ApiKeyService {
       enableClientRestriction: apiKeyRecord.enableClientRestriction,
       allowedClients: apiKeyRecord.allowedClients,
       dailyCostLimit: Number(apiKeyRecord.dailyCostLimit),
+      weeklyCostLimit: Number(apiKeyRecord.weeklyCostLimit || 0),
       totalCostLimit: Number(apiKeyRecord.totalCostLimit),
       weeklyOpusCostLimit: Number(apiKeyRecord.weeklyOpusCostLimit),
       tags: apiKeyRecord.tags,
@@ -339,9 +365,11 @@ class ApiKeyService {
           allowedClients: keyRecord.allowedClients || [],
           dailyCostLimit: Number(keyRecord.dailyCostLimit || 0),
           totalCostLimit: Number(keyRecord.totalCostLimit || 0),
+          weeklyCostLimit: Number(keyRecord.weeklyCostLimit || 0),
           weeklyOpusCostLimit: Number(keyRecord.weeklyOpusCostLimit || 0),
           dailyCost: dailyCost || 0,
           totalCost,
+          weeklyCost: (await redis.getWeeklyCost(keyRecord.id)) || 0,
           weeklyOpusCost: (await redis.getWeeklyOpusCost(keyRecord.id)) || 0,
           tags: keyRecord.tags || [],
           usage
@@ -506,6 +534,8 @@ class ApiKeyService {
           enableClientRestriction: record.enableClientRestriction,
           allowedClients: record.allowedClients || [],
           dailyCostLimit: Number(record.dailyCostLimit || 0),
+          weeklyCostLimit: Number(record.weeklyCostLimit || 0),
+          monthlyCostLimit: Number(record.monthlyCostLimit || 0),
           totalCostLimit: Number(record.totalCostLimit || 0),
           weeklyOpusCostLimit: Number(record.weeklyOpusCostLimit || 0),
           tags: record.tags || [],
@@ -531,6 +561,8 @@ class ApiKeyService {
         key.totalCost = costStats ? costStats.total : 0
         key.currentConcurrency = await redis.getConcurrency(key.id)
         key.dailyCost = (await redis.getDailyCost(key.id)) || 0
+        key.weeklyCost = (await redis.getWeeklyCost(key.id)) || 0
+        key.monthlyCost = (await redis.getMonthlyCost(key.id)) || 0
         key.weeklyOpusCost = (await redis.getWeeklyOpusCost(key.id)) || 0
 
         // 获取当前时间窗口的请求次数、Token使用量和费用
@@ -673,6 +705,8 @@ class ApiKeyService {
         enableClientRestriction: 'enableClientRestriction',
         allowedClients: 'allowedClients',
         dailyCostLimit: 'dailyCostLimit',
+        weeklyCostLimit: 'weeklyCostLimit',
+        monthlyCostLimit: 'monthlyCostLimit',
         totalCostLimit: 'totalCostLimit',
         weeklyOpusCostLimit: 'weeklyOpusCostLimit',
         tags: 'tags',
@@ -701,6 +735,8 @@ class ApiKeyService {
           } else if (
             field === 'rateLimitCost' ||
             field === 'dailyCostLimit' ||
+            field === 'weeklyCostLimit' ||
+            field === 'monthlyCostLimit' ||
             field === 'totalCostLimit' ||
             field === 'weeklyOpusCostLimit'
           ) {
@@ -962,6 +998,8 @@ class ApiKeyService {
       // 记录费用统计
       if (costInfo.costs.total > 0) {
         await redis.incrementDailyCost(keyId, costInfo.costs.total)
+        await redis.incrementWeeklyCost(keyId, costInfo.costs.total)
+        await redis.incrementMonthlyCost(keyId, costInfo.costs.total) // 新增：月费用
         logger.database(
           `💰 Recorded cost for ${keyId}: $${costInfo.costs.total.toFixed(6)}, model: ${model}`
         )
@@ -1171,6 +1209,9 @@ class ApiKeyService {
 
         // 记录 Opus 周费用（如果适用）
         await this.recordOpusCost(keyId, costInfo.totalCost, model, accountType)
+
+        // 记录普通周费用 (New Feature)
+        await redis.incrementWeeklyCost(keyId, costInfo.totalCost)
 
         // 记录详细的缓存费用（如果有）
         if (costInfo.ephemeral5mCost > 0 || costInfo.ephemeral1hCost > 0) {

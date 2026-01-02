@@ -17,21 +17,19 @@ const AccountUsageRecordsView = () => import('@/views/AccountUsageRecordsView.vu
 const TutorialView = () => import('@/views/TutorialView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const ApiStatsView = () => import('@/views/ApiStatsView.vue')
+const EmailUsersView = () => import('@/views/EmailUsersView.vue')
+const AuditLogsView = () => import('@/views/AuditLogsView.vue')
+const NotificationsView = () => import('@/views/NotificationsView.vue')
 
 const routes = [
   {
     path: '/',
     redirect: () => {
-      // 智能重定向：避免循环
       const currentPath = window.location.pathname
-      const basePath = APP_CONFIG.basePath.replace(/\/$/, '') // 移除末尾斜杠
-
-      // 如果当前路径已经是 basePath 或 basePath/，重定向到 api-stats
+      const basePath = APP_CONFIG.basePath.replace(/\/$/, '')
       if (currentPath === basePath || currentPath === basePath + '/') {
         return '/api-stats'
       }
-
-      // 否则保持默认重定向
       return '/api-stats'
     }
   },
@@ -159,6 +157,42 @@ const routes = [
       }
     ]
   },
+  {
+    path: '/email-users',
+    component: MainLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'EmailUsers',
+        component: EmailUsersView
+      }
+    ]
+  },
+  {
+    path: '/audit-logs',
+    component: MainLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'AuditLogs',
+        component: AuditLogsView
+      }
+    ]
+  },
+  {
+    path: '/notifications',
+    component: MainLayout,
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'Notifications',
+        component: NotificationsView
+      }
+    ]
+  },
   // 捕获所有未匹配的路由
   {
     path: '/:pathMatch(.*)*',
@@ -194,16 +228,13 @@ router.beforeEach(async (to, from, next) => {
   // 检查用户认证状态
   if (to.meta.requiresUserAuth) {
     if (!userStore.isAuthenticated) {
-      // 尝试检查本地存储的认证信息
       try {
         const isUserLoggedIn = await userStore.checkAuth()
         if (!isUserLoggedIn) {
           return next('/user-login')
         }
       } catch (error) {
-        // If the error is about disabled account, redirect to login with error
         if (error.message && error.message.includes('disabled')) {
-          // Import showToast to display the error
           const { showToast } = await import('@/utils/toast')
           showToast(error.message, 'error')
         }
@@ -217,7 +248,6 @@ router.beforeEach(async (to, from, next) => {
   if (to.path === '/api-stats' || to.path.startsWith('/api-stats')) {
     next()
   } else if (to.path === '/user-login') {
-    // 如果已经是用户登录状态，重定向到用户仪表板
     if (userStore.isAuthenticated) {
       next('/user-dashboard')
     } else {

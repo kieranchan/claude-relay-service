@@ -83,7 +83,7 @@ const props = defineProps({
   type: {
     type: String,
     required: true,
-    validator: (value) => ['daily', 'opus', 'window', 'total'].includes(value)
+    validator: (value) => ['daily', 'weekly', 'monthly', 'opus', 'window', 'total'].includes(value)
   },
   variant: {
     type: String,
@@ -124,6 +124,10 @@ const containerClass = computed(() => {
   switch (props.type) {
     case 'daily':
       return 'border-emerald-200/80 bg-white/80 shadow-[0_10px_24px_rgba(16,185,129,0.18)] group-hover:shadow-[0_14px_30px_rgba(16,185,129,0.22)] dark:border-emerald-500/40 dark:bg-emerald-950/40 dark:shadow-[0_12px_28px_rgba(0,0,0,0.45)]'
+    case 'weekly':
+      return 'border-cyan-200/80 bg-white/80 shadow-[0_10px_24px_rgba(6,182,212,0.18)] group-hover:shadow-[0_14px_30px_rgba(6,182,212,0.22)] dark:border-cyan-500/40 dark:bg-cyan-950/40 dark:shadow-[0_12px_28px_rgba(0,0,0,0.45)]'
+    case 'monthly':
+      return 'border-indigo-200/80 bg-white/80 shadow-[0_10px_24px_rgba(99,102,241,0.18)] group-hover:shadow-[0_14px_30px_rgba(99,102,241,0.22)] dark:border-indigo-500/40 dark:bg-indigo-950/40 dark:shadow-[0_12px_28px_rgba(0,0,0,0.45)]'
     case 'opus':
       return 'border-violet-200/80 bg-white/80 shadow-[0_10px_24px_rgba(139,92,246,0.18)] group-hover:shadow-[0_14px_30px_rgba(139,92,246,0.22)] dark:border-violet-500/40 dark:bg-violet-950/40 dark:shadow-[0_12px_28px_rgba(0,0,0,0.45)]'
     case 'window':
@@ -140,6 +144,10 @@ const backgroundClass = computed(() => {
   switch (props.type) {
     case 'daily':
       return 'bg-gradient-to-r from-emerald-50 via-green-50 to-emerald-100 dark:from-emerald-900/40 dark:via-emerald-900/20 dark:to-emerald-800/30'
+    case 'weekly':
+      return 'bg-gradient-to-r from-cyan-50 via-teal-50 to-cyan-100 dark:from-cyan-900/40 dark:via-cyan-900/20 dark:to-teal-800/30'
+    case 'monthly':
+      return 'bg-gradient-to-r from-indigo-50 via-purple-50 to-indigo-100 dark:from-indigo-900/40 dark:via-indigo-900/20 dark:to-purple-800/30'
     case 'opus':
       return 'bg-gradient-to-r from-violet-50 via-violet-100 to-fuchsia-100 dark:from-violet-900/40 dark:via-violet-900/20 dark:to-fuchsia-900/30'
     case 'window':
@@ -172,6 +180,26 @@ const progressBarClass = computed(() => {
       return 'bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 dark:from-amber-400 dark:via-orange-400 dark:to-amber-500'
     } else {
       return 'bg-gradient-to-r from-violet-400 via-purple-500 to-fuchsia-500 dark:from-violet-400 dark:via-purple-500 dark:to-fuchsia-500'
+    }
+  }
+
+  if (props.type === 'weekly') {
+    if (p >= 90) {
+      return 'bg-gradient-to-r from-rose-500 via-red-500 to-rose-600 dark:from-rose-500 dark:via-red-500 dark:to-rose-600'
+    } else if (p >= 70) {
+      return 'bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 dark:from-amber-400 dark:via-orange-400 dark:to-amber-500'
+    } else {
+      return 'bg-gradient-to-r from-cyan-400 via-teal-500 to-cyan-500 dark:from-cyan-400 dark:via-teal-500 dark:to-cyan-500'
+    }
+  }
+
+  if (props.type === 'monthly') {
+    if (p >= 90) {
+      return 'bg-gradient-to-r from-rose-500 via-red-500 to-rose-600 dark:from-rose-500 dark:via-red-500 dark:to-rose-600'
+    } else if (p >= 70) {
+      return 'bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 dark:from-amber-400 dark:via-orange-400 dark:to-amber-500'
+    } else {
+      return 'bg-gradient-to-r from-indigo-400 via-purple-500 to-indigo-500 dark:from-indigo-400 dark:via-purple-500 dark:to-indigo-500'
     }
   }
 
@@ -217,6 +245,10 @@ const compactBarClass = computed(() => {
       return 'bg-sky-500 dark:bg-sky-400'
     case 'total':
       return 'bg-blue-500 dark:bg-blue-400'
+    case 'weekly':
+      return 'bg-cyan-500 dark:bg-cyan-400'
+    case 'monthly':
+      return 'bg-indigo-500 dark:bg-indigo-400'
     default:
       return 'bg-slate-400 dark:bg-slate-500'
   }
@@ -241,6 +273,10 @@ const compactLabelClass = computed(() => {
       return 'text-sky-600 dark:text-sky-300'
     case 'total':
       return 'text-blue-600 dark:text-blue-300'
+    case 'weekly':
+      return 'text-cyan-600 dark:text-cyan-300'
+    case 'monthly':
+      return 'text-indigo-600 dark:text-indigo-300'
     default:
       return 'text-gray-600 dark:text-gray-300'
   }
@@ -267,6 +303,12 @@ const iconClass = computed(() => {
       case 'window':
         colorClass = 'text-blue-700 dark:text-blue-400'
         break
+      case 'weekly':
+        colorClass = 'text-cyan-700 dark:text-cyan-400'
+        break
+      case 'monthly':
+        colorClass = 'text-indigo-700 dark:text-indigo-400'
+        break
       default:
         colorClass = 'text-gray-600 dark:text-gray-400'
     }
@@ -285,6 +327,12 @@ const iconClass = computed(() => {
       break
     case 'total':
       iconName = 'fas fa-wallet'
+      break
+    case 'weekly':
+      iconName = 'fas fa-calendar-week'
+      break
+    case 'monthly':
+      iconName = 'fas fa-calendar-alt'
       break
     default:
       iconName = 'fas fa-infinity'
@@ -312,6 +360,10 @@ const labelTextClass = computed(() => {
         return 'text-blue-900 dark:text-blue-100'
       case 'total':
         return 'text-blue-900 dark:text-blue-100'
+      case 'weekly':
+        return 'text-cyan-900 dark:text-cyan-100'
+      case 'monthly':
+        return 'text-indigo-900 dark:text-indigo-100'
       default:
         return 'text-gray-900 dark:text-gray-100'
     }
@@ -342,6 +394,10 @@ const currentValueClass = computed(() => {
           return 'text-blue-800 dark:text-blue-200'
         case 'total':
           return 'text-blue-800 dark:text-blue-200'
+        case 'weekly':
+          return 'text-cyan-800 dark:text-cyan-200'
+        case 'monthly':
+          return 'text-indigo-800 dark:text-indigo-200'
         default:
           return 'text-gray-900 dark:text-gray-100'
       }

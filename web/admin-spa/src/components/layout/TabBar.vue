@@ -69,6 +69,30 @@ const tabs = computed(() => {
     })
   }
 
+  // 邮箱用户管理（总是显示）
+  baseTabs.push({
+    key: 'emailUsers',
+    name: '邮箱用户',
+    shortName: '邮箱',
+    icon: 'fas fa-envelope-open-text'
+  })
+
+  // 审计日志
+  baseTabs.push({
+    key: 'auditLogs',
+    name: '审计日志',
+    shortName: '审计',
+    icon: 'fas fa-history'
+  })
+
+  // 通知中心
+  baseTabs.push({
+    key: 'notifications',
+    name: '通知中心',
+    shortName: '通知',
+    icon: 'fas fa-bullhorn'
+  })
+
   baseTabs.push(
     { key: 'tutorial', name: '使用教程', shortName: '教程', icon: 'fas fa-graduation-cap' },
     { key: 'settings', name: '系统设置', shortName: '设置', icon: 'fas fa-cogs' }

@@ -303,6 +303,38 @@ class EmailService {
   }
 
   /**
+   * 发送通用邮件
+   * @param {Object} options
+   * @param {string} options.to - 收件人
+   * @param {string} options.subject - 主题
+   * @param {string} options.html - HTML内容
+   * @param {string} [options.text] - 纯文本内容（可选）
+   * @returns {Promise<boolean>}
+   */
+  async sendEmail({ to, subject, html, text }) {
+    if (!this.isConfigured) {
+      logger.warn(`⚠️ Email not configured. Skipping email to: ${to}`)
+      return false
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: this.getFromAddress(),
+        to,
+        subject,
+        html,
+        text
+      })
+
+      logger.info(`📧 Email sent to: ${to} | Subject: ${subject}`)
+      return true
+    } catch (error) {
+      logger.error(`❌ Failed to send email to ${to}:`, error)
+      throw error // Re-throw to let caller handle failure
+    }
+  }
+
+  /**
    * 测试 SMTP 连接
    * @returns {Promise<Object>}
    */

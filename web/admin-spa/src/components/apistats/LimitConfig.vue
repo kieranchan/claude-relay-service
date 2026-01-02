@@ -104,88 +104,125 @@
       <!-- 仅在单 Key 模式下显示限制配置 -->
       <div v-if="!multiKeyMode" class="space-y-4 md:space-y-5">
         <!-- 每日费用限制 -->
-        <div>
+        <!-- 每日费用限制 -->
+        <div v-if="statsData.limits.dailyCostLimit > 0">
+          <LimitProgressBar
+            :current="statsData.limits.currentDailyCost"
+            label="每日费用限制"
+            :limit="statsData.limits.dailyCostLimit"
+            :show-shine="true"
+            type="daily"
+          />
+        </div>
+        <div v-else>
           <div class="mb-2 flex items-center justify-between">
             <span class="text-sm font-medium text-gray-600 dark:text-gray-400 md:text-base"
               >每日费用限制</span
             >
             <span class="text-xs text-gray-500 dark:text-gray-400 md:text-sm">
-              <span v-if="statsData.limits.dailyCostLimit > 0">
-                ${{ statsData.limits.currentDailyCost.toFixed(4) }} / ${{
-                  statsData.limits.dailyCostLimit.toFixed(2)
-                }}
-              </span>
-              <span v-else class="flex items-center gap-1">
+              <span class="flex items-center gap-1">
                 ${{ statsData.limits.currentDailyCost.toFixed(4) }} / <i class="fas fa-infinity" />
               </span>
             </span>
           </div>
-          <div
-            v-if="statsData.limits.dailyCostLimit > 0"
-            class="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700"
-          >
-            <div
-              class="h-2 rounded-full transition-all duration-300"
-              :class="getDailyCostProgressColor()"
-              :style="{ width: getDailyCostProgress() + '%' }"
-            />
-          </div>
-          <div v-else class="h-2 w-full rounded-full bg-gray-200">
+          <div class="h-2 w-full rounded-full bg-gray-200">
             <div class="h-2 rounded-full bg-green-500" style="width: 0%" />
           </div>
         </div>
 
+        <!-- 每周费用限制 -->
+        <!-- 每周费用限制 -->
+        <div v-if="statsData.limits.weeklyCostLimit > 0">
+          <LimitProgressBar
+            :current="statsData.limits.currentWeeklyCost"
+            label="每周费用限制"
+            :limit="statsData.limits.weeklyCostLimit"
+            :show-shine="true"
+            type="weekly"
+          />
+        </div>
+        <div v-else>
+          <div class="mb-2 flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-600 dark:text-gray-400 md:text-base"
+              >每周费用限制</span
+            >
+            <span class="text-xs text-gray-500 dark:text-gray-400 md:text-sm">
+              <span class="flex items-center gap-1">
+                ${{ statsData.limits.currentWeeklyCost.toFixed(4) }} / <i class="fas fa-infinity" />
+              </span>
+            </span>
+          </div>
+          <div class="h-2 w-full rounded-full bg-gray-200">
+            <div class="h-2 rounded-full bg-cyan-500" style="width: 0%" />
+          </div>
+        </div>
+
+        <!-- 每月费用限制 -->
+        <!-- 每月费用限制 -->
+        <div v-if="statsData.limits.monthlyCostLimit > 0">
+          <LimitProgressBar
+            :current="statsData.limits.currentMonthlyCost"
+            label="每月费用限制"
+            :limit="statsData.limits.monthlyCostLimit"
+            :show-shine="true"
+            type="monthly"
+          />
+        </div>
+        <div v-else>
+          <div class="mb-2 flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-600 dark:text-gray-400 md:text-base"
+              >每月费用限制</span
+            >
+            <span class="text-xs text-gray-500 dark:text-gray-400 md:text-sm">
+              <span class="flex items-center gap-1">
+                ${{ statsData.limits.currentMonthlyCost.toFixed(4) }} /
+                <i class="fas fa-infinity" />
+              </span>
+            </span>
+          </div>
+          <div class="h-2 w-full rounded-full bg-gray-200">
+            <div class="h-2 rounded-full bg-indigo-500" style="width: 0%" />
+          </div>
+        </div>
+
         <!-- 总费用限制 -->
-        <div>
+        <!-- 总费用限制 -->
+        <!-- 总费用限制 -->
+        <div v-if="statsData.limits.totalCostLimit > 0">
+          <LimitProgressBar
+            :current="statsData.limits.currentTotalCost"
+            label="总费用限制"
+            :limit="statsData.limits.totalCostLimit"
+            :show-shine="true"
+            type="total"
+          />
+        </div>
+        <div v-else>
           <div class="mb-2 flex items-center justify-between">
             <span class="text-sm font-medium text-gray-600 dark:text-gray-400 md:text-base"
               >总费用限制</span
             >
             <span class="text-xs text-gray-500 dark:text-gray-400 md:text-sm">
-              <span v-if="statsData.limits.totalCostLimit > 0">
-                ${{ statsData.limits.currentTotalCost.toFixed(4) }} / ${{
-                  statsData.limits.totalCostLimit.toFixed(2)
-                }}
-              </span>
-              <span v-else class="flex items-center gap-1">
+              <span class="flex items-center gap-1">
                 ${{ statsData.limits.currentTotalCost.toFixed(4) }} / <i class="fas fa-infinity" />
               </span>
             </span>
           </div>
-          <div
-            v-if="statsData.limits.totalCostLimit > 0"
-            class="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700"
-          >
-            <div
-              class="h-2 rounded-full transition-all duration-300"
-              :class="getTotalCostProgressColor()"
-              :style="{ width: getTotalCostProgress() + '%' }"
-            />
-          </div>
-          <div v-else class="h-2 w-full rounded-full bg-gray-200">
+          <div class="h-2 w-full rounded-full bg-gray-200">
             <div class="h-2 rounded-full bg-blue-500" style="width: 0%" />
           </div>
         </div>
 
         <!-- Opus 模型周费用限制 -->
         <div v-if="statsData.limits.weeklyOpusCostLimit > 0">
-          <div class="mb-2 flex items-center justify-between">
-            <span class="text-sm font-medium text-gray-600 dark:text-gray-400 md:text-base"
-              >Opus 模型周费用限制</span
-            >
-            <span class="text-xs text-gray-500 dark:text-gray-400 md:text-sm">
-              ${{ statsData.limits.weeklyOpusCost.toFixed(4) }} / ${{
-                statsData.limits.weeklyOpusCostLimit.toFixed(2)
-              }}
-            </span>
-          </div>
-          <div class="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
-            <div
-              class="h-2 rounded-full transition-all duration-300"
-              :class="getOpusWeeklyCostProgressColor()"
-              :style="{ width: getOpusWeeklyCostProgress() + '%' }"
-            />
-          </div>
+          <LimitProgressBar
+            :current="statsData.limits.weeklyOpusCost"
+            label="Opus 模型周费用限制"
+            :limit="statsData.limits.weeklyOpusCostLimit"
+            :show-shine="true"
+            type="opus"
+            variant="full"
+          />
         </div>
 
         <!-- 时间窗口限制 -->
@@ -325,6 +362,7 @@ import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useApiStatsStore } from '@/stores/apistats'
 import WindowCountdown from '@/components/apikeys/WindowCountdown.vue'
+import LimitProgressBar from '@/components/apikeys/LimitProgressBar.vue'
 
 const apiStatsStore = useApiStatsStore()
 const { statsData, multiKeyMode, aggregatedStats, invalidKeys } = storeToRefs(apiStatsStore)
@@ -349,60 +387,6 @@ const hasClientRestrictions = computed(() => {
   )
 })
 
-// 获取每日费用进度
-const getDailyCostProgress = () => {
-  if (!statsData.value.limits.dailyCostLimit || statsData.value.limits.dailyCostLimit === 0)
-    return 0
-  const percentage =
-    (statsData.value.limits.currentDailyCost / statsData.value.limits.dailyCostLimit) * 100
-  return Math.min(percentage, 100)
-}
-
-// 获取每日费用进度条颜色
-const getDailyCostProgressColor = () => {
-  const progress = getDailyCostProgress()
-  if (progress >= 100) return 'bg-red-500'
-  if (progress >= 80) return 'bg-yellow-500'
-  return 'bg-green-500'
-}
-
-// 获取总费用进度
-const getTotalCostProgress = () => {
-  if (!statsData.value.limits.totalCostLimit || statsData.value.limits.totalCostLimit === 0)
-    return 0
-  const percentage =
-    (statsData.value.limits.currentTotalCost / statsData.value.limits.totalCostLimit) * 100
-  return Math.min(percentage, 100)
-}
-
-// 获取总费用进度条颜色
-const getTotalCostProgressColor = () => {
-  const progress = getTotalCostProgress()
-  if (progress >= 100) return 'bg-red-500'
-  if (progress >= 80) return 'bg-yellow-500'
-  return 'bg-blue-500'
-}
-
-// 获取Opus周费用进度
-const getOpusWeeklyCostProgress = () => {
-  if (
-    !statsData.value.limits.weeklyOpusCostLimit ||
-    statsData.value.limits.weeklyOpusCostLimit === 0
-  )
-    return 0
-  const percentage =
-    (statsData.value.limits.weeklyOpusCost / statsData.value.limits.weeklyOpusCostLimit) * 100
-  return Math.min(percentage, 100)
-}
-
-// 获取Opus周费用进度条颜色
-const getOpusWeeklyCostProgressColor = () => {
-  const progress = getOpusWeeklyCostProgress()
-  if (progress >= 100) return 'bg-red-500'
-  if (progress >= 80) return 'bg-yellow-500'
-  return 'bg-indigo-500' // 使用紫色表示Opus模型
-}
-
 // 格式化数字
 const formatNumber = (num) => {
   if (typeof num !== 'number') {
@@ -411,7 +395,7 @@ const formatNumber = (num) => {
 
   if (num === 0) return '0'
 
-  // 大数字使用简化格式
+  // 初始化主题（因为该页面不在 MainLayout 内）
   if (num >= 1000000) {
     return (num / 1000000).toFixed(1) + 'M'
   } else if (num >= 1000) {

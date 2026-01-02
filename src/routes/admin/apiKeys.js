@@ -33,28 +33,58 @@ router.get('/users', authenticateAdmin, async (req, res) => {
 
     const result = await userService.getAllUsers(options)
 
-    // Extract users array from the paginated result
-    const allUsers = result.users || []
+    // Also get email users from PostgreSQL
+    const emailUserService = require('../../services/emailAuth/emailUserService')
+    let emailUsers = []
+    try {
+      // Map the same options to emailUserService
+      const emailUserOptions = {
+        limit: 1000,
+        status: isActive === 'true' ? 'active' : undefined
+      }
+      const emailResult = await emailUserService.getAllUsers(emailUserOptions)
+      emailUsers = emailResult.users || []
+    } catch (err) {
+      logger.error('Failed to get email users:', err)
+    }
 
-    // Map to the format needed for the dropdown
-    const activeUsers = allUsers.map((user) => ({
+    // Extract users array from the paginated result
+    const redisUsers = result.users || []
+
+    // Map Redis users
+    const mappedRedisUsers = redisUsers.map((user) => ({
       id: user.id,
       username: user.username,
       displayName: user.displayName || user.username,
       email: user.email,
-      role: user.role
+      role: user.role,
+      source: 'redis'
     }))
+
+    // Map Email users
+    const mappedEmailUsers = emailUsers.map((user) => ({
+      id: user.id,
+      username: user.email, // Email users use email as username
+      displayName: user.email,
+      email: user.email,
+      role: user.role,
+      source: 'postgres'
+    }))
+
+    // Merge lists (avoid duplicates if any)
+    const allUsers = [...mappedRedisUsers, ...mappedEmailUsers]
 
     // 添加Admin选项作为第一个
     const usersWithAdmin = [
       {
         id: 'admin',
         username: 'admin',
-        displayName: 'Admin',
+        displayName: 'Admin (System)',
         email: '',
-        role: 'admin'
+        role: 'admin',
+        source: 'system'
       },
-      ...activeUsers
+      ...allUsers
     ]
 
     return res.json({
@@ -129,14 +159,9 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
       isActive = '',
       models = '', // 模型筛选（逗号分隔）
       // 排序参数
+      // 排序参数
       sortBy = 'createdAt',
-      sortOrder = 'desc',
-      // 费用排序参数
-      costTimeRange = '7days', // 费用排序的时间范围
-      costStartDate = '', // custom 时间范围的开始日期
-      costEndDate = '', // custom 时间范围的结束日期
-      // 兼容旧参数（不再用于费用计算，仅标记）
-      timeRange = 'all'
+      sortOrder = 'desc'
     } = req.query
 
     // 解析模型筛选参数
@@ -159,401 +184,161 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
     const validSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt'
     const validSortOrder = ['asc', 'desc'].includes(sortOrder) ? sortOrder : 'desc'
 
-    // 获取用户服务来补充owner信息
-    const userService = require('../../services/userService')
-
     // 如果是绑定账号搜索模式，先刷新账户名称缓存
     if (searchMode === 'bindingAccount' && search) {
       const accountNameCacheService = require('../../services/accountNameCacheService')
       await accountNameCacheService.refreshIfNeeded()
     }
 
-    let result
-    let costSortStatus = null
+    const result = {
+      items: [],
+      pagination: { page: pageNum, pageSize: pageSizeNum, total: 0, totalPages: 0 },
+      availableTags: []
+    }
+    const costSortStatus = null
 
-    // 如果是费用排序
+    // 构造 Prisma 查询条件
+    const where = {}
+
+    // 默认排除已删除 (除非显式要求包含)
+    if (req.query.excludeDeleted !== 'false') {
+      where.isDeleted = false
+    }
+
+    // 状态筛选
+    if (isActive !== '' && isActive !== undefined) {
+      where.isActive = isActive === 'true'
+    }
+
+    // 搜索 (支持 密钥名称、所有者、KeyHash 前缀)
+    if (search) {
+      // 检查 searchMode
+      const mode = searchMode ? searchMode.toLowerCase() : 'apikey'
+
+      if (mode === 'bindingaccount') {
+        // 绑定账号搜索
+        where.OR = [
+          { claudeAccountId: { contains: search, mode: 'insensitive' } },
+          { claudeConsoleAccountId: { contains: search, mode: 'insensitive' } },
+          { geminiAccountId: { contains: search, mode: 'insensitive' } },
+          { openaiAccountId: { contains: search, mode: 'insensitive' } },
+          { bedrockAccountId: { contains: search, mode: 'insensitive' } },
+          { droidAccountId: { contains: search, mode: 'insensitive' } }
+        ]
+      } else {
+        // 默认搜索: 名称、描述、KeyHash、User
+        where.OR = [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { keyHash: { startsWith: search } },
+          { userUsername: { contains: search, mode: 'insensitive' } },
+          // 尝试关联用户搜索 (需要 user relation)
+          { user: { email: { contains: search, mode: 'insensitive' } } }
+        ]
+      }
+    }
+
+    // 标签筛选
+    if (tag) {
+      // Postgres JSONB @> 操作
+      where.tags = {
+        array_contains: tag
+      }
+    }
+
+    // 模型筛选 (简化：仅支持包含第一个模型)
+    if (modelFilter.length > 0 && modelFilter[0]) {
+      where.restrictedModels = {
+        array_contains: modelFilter[0]
+      }
+    }
+
+    // 排序逻辑
+    const orderBy = {}
     if (validSortBy === 'cost') {
-      const costRankService = require('../../services/costRankService')
-
-      // 验证费用排序的时间范围
-      const validCostTimeRanges = ['today', '7days', '30days', 'all', 'custom']
-      const effectiveCostTimeRange = validCostTimeRanges.includes(costTimeRange)
-        ? costTimeRange
-        : '7days'
-
-      // 如果是 custom 时间范围，使用实时计算
-      if (effectiveCostTimeRange === 'custom') {
-        // 验证日期参数
-        if (!costStartDate || !costEndDate) {
-          return res.status(400).json({
-            success: false,
-            error: 'INVALID_DATE_RANGE',
-            message: '自定义时间范围需要提供 costStartDate 和 costEndDate 参数'
-          })
-        }
-
-        const start = new Date(costStartDate)
-        const end = new Date(costEndDate)
-        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-          return res.status(400).json({
-            success: false,
-            error: 'INVALID_DATE_FORMAT',
-            message: '日期格式无效'
-          })
-        }
-
-        if (start > end) {
-          return res.status(400).json({
-            success: false,
-            error: 'INVALID_DATE_RANGE',
-            message: '开始日期不能晚于结束日期'
-          })
-        }
-
-        // 限制最大范围为 365 天
-        const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1
-        if (daysDiff > 365) {
-          return res.status(400).json({
-            success: false,
-            error: 'DATE_RANGE_TOO_LARGE',
-            message: '日期范围不能超过365天'
-          })
-        }
-
-        logger.info(`📊 Cost sort with custom range: ${costStartDate} to ${costEndDate}`)
-
-        // 实时计算费用排序
-        result = await getApiKeysSortedByCostCustom({
-          page: pageNum,
-          pageSize: pageSizeNum,
-          sortOrder: validSortOrder,
-          startDate: costStartDate,
-          endDate: costEndDate,
-          search,
-          searchMode,
-          tag,
-          isActive,
-          modelFilter
-        })
-
-        costSortStatus = {
-          status: 'ready',
-          isRealTimeCalculation: true
-        }
-      } else {
-        // 使用预计算索引
-        const rankStatus = await costRankService.getRankStatus()
-        costSortStatus = rankStatus[effectiveCostTimeRange]
-
-        // 检查索引是否就绪
-        if (!costSortStatus || costSortStatus.status !== 'ready') {
-          return res.status(503).json({
-            success: false,
-            error: 'RANK_NOT_READY',
-            message: `费用排序索引 (${effectiveCostTimeRange}) 正在更新中，请稍后重试`,
-            costSortStatus: costSortStatus || { status: 'unknown' }
-          })
-        }
-
-        logger.info(`📊 Cost sort using precomputed index: ${effectiveCostTimeRange}`)
-
-        // 使用预计算索引排序
-        result = await getApiKeysSortedByCostPrecomputed({
-          page: pageNum,
-          pageSize: pageSizeNum,
-          sortOrder: validSortOrder,
-          costTimeRange: effectiveCostTimeRange,
-          search,
-          searchMode,
-          tag,
-          isActive,
-          modelFilter
-        })
-
-        costSortStatus.isRealTimeCalculation = false
-      }
+      // 临时回退：按创建时间排序，因为DB没有实时cost
+      orderBy.createdAt = 'desc'
     } else {
-      // 原有的非费用排序逻辑
-      result = await redis.getApiKeysPaginated({
-        page: pageNum,
-        pageSize: pageSizeNum,
-        searchMode,
-        search,
-        tag,
-        isActive,
-        sortBy: validSortBy,
-        sortOrder: validSortOrder,
-        modelFilter
-      })
+      orderBy[validSortBy] = validSortOrder
     }
 
-    // 为每个API Key添加owner的displayName
-    for (const apiKey of result.items) {
-      if (apiKey.userId) {
-        try {
-          const user = await userService.getUserById(apiKey.userId, false)
-          if (user) {
-            apiKey.ownerDisplayName = user.displayName || user.username || 'Unknown User'
-          } else {
-            apiKey.ownerDisplayName = 'Unknown User'
-          }
-        } catch (error) {
-          logger.debug(`无法获取用户 ${apiKey.userId} 的信息:`, error)
-          apiKey.ownerDisplayName = 'Unknown User'
+    // 执行 Prisma 查询
+    const { prisma } = require('../../models/prisma')
+
+    // 1. Count
+    const total = await prisma.apiKey.count({ where })
+
+    // 2. FindMany
+    const dbKeys = await prisma.apiKey.findMany({
+      where,
+      orderBy,
+      skip: (pageNum - 1) * pageSizeNum,
+      take: pageSizeNum,
+      include: {
+        user: {
+          select: { id: true, email: true }
         }
-      } else {
-        apiKey.ownerDisplayName =
-          apiKey.createdBy === 'admin' ? 'Admin' : apiKey.createdBy || 'Admin'
       }
+    })
 
-      // 初始化空的 usage 对象（费用通过 batch-stats 接口获取）
-      if (!apiKey.usage) {
-        apiKey.usage = { total: { requests: 0, tokens: 0, cost: 0, formattedCost: '$0.00' } }
-      }
+    // 3. Enrich with Redis Cost Data
+    const items = await Promise.all(
+      dbKeys.map(async (key) => {
+        // 获取实时用量
+        const costStats = await redis.getCostStats(key.id)
+        const dailyCost = (await redis.getDailyCost(key.id)) || 0
+        const weeklyCost = (await redis.getWeeklyCost(key.id)) || 0
+
+        return {
+          ...key,
+          id: key.id,
+          uuid: key.id,
+          // 类型转换 Decimal/BigInt -> Number
+          tokenLimit: Number(key.tokenLimit || 0),
+          rateLimitCost: Number(key.rateLimitCost || 0),
+          dailyCostLimit: Number(key.dailyCostLimit || 0),
+          weeklyCostLimit: Number(key.weeklyCostLimit || 0),
+          monthlyCostLimit: Number(key.monthlyCostLimit || 0),
+          totalCostLimit: Number(key.totalCostLimit || 0),
+          weeklyOpusCostLimit: Number(key.weeklyOpusCostLimit || 0),
+
+          // 注入 Redis 实时数据
+          dailyCost,
+          weeklyCost,
+          totalCost: costStats.total,
+          cost: costStats.total,
+
+          // Owner Display
+          ownerDisplayName:
+            key.userUsername || key.user?.displayName || key.user?.email || 'System',
+
+          // Dates
+          createdAt: key.createdAt.toISOString(),
+          expiresAt: key.expiresAt ? key.expiresAt.toISOString() : null,
+          lastUsedAt: key.lastUsedAt ? key.lastUsedAt.toISOString() : null
+        }
+      })
+    )
+
+    result.items = items
+    result.pagination = {
+      page: pageNum,
+      pageSize: pageSizeNum,
+      total,
+      totalPages: Math.ceil(total / pageSizeNum)
     }
-
-    // 返回分页数据
-    const responseData = {
+    return res.json({
       success: true,
       data: {
-        items: result.items,
-        pagination: result.pagination,
-        availableTags: result.availableTags
-      },
-      // 标记当前请求的时间范围（供前端参考）
-      timeRange
-    }
-
-    // 如果是费用排序，附加排序状态
-    if (costSortStatus) {
-      responseData.data.costSortStatus = costSortStatus
-    }
-
-    return res.json(responseData)
+        ...result,
+        costSortStatus
+      }
+    })
   } catch (error) {
     logger.error('❌ Failed to get API keys:', error)
     return res.status(500).json({ error: 'Failed to get API keys', message: error.message })
   }
 })
-
-/**
- * 使用预计算索引进行费用排序的分页查询
- */
-async function getApiKeysSortedByCostPrecomputed(options) {
-  const {
-    page,
-    pageSize,
-    sortOrder,
-    costTimeRange,
-    search,
-    searchMode,
-    tag,
-    isActive,
-    modelFilter = []
-  } = options
-  const costRankService = require('../../services/costRankService')
-
-  // 1. 获取排序后的全量 keyId 列表
-  const rankedKeyIds = await costRankService.getSortedKeyIds(costTimeRange, sortOrder)
-
-  if (rankedKeyIds.length === 0) {
-    return {
-      items: [],
-      pagination: { page: 1, pageSize, total: 0, totalPages: 1 },
-      availableTags: []
-    }
-  }
-
-  // 2. 批量获取 API Key 基础数据
-  const allKeys = await redis.batchGetApiKeys(rankedKeyIds)
-
-  // 3. 保持排序顺序（使用 Map 优化查找）
-  const keyMap = new Map(allKeys.map((k) => [k.id, k]))
-  let orderedKeys = rankedKeyIds.map((id) => keyMap.get(id)).filter((k) => k && !k.isDeleted)
-
-  // 4. 应用筛选条件
-  // 状态筛选
-  if (isActive !== '' && isActive !== undefined && isActive !== null) {
-    const activeValue = isActive === 'true' || isActive === true
-    orderedKeys = orderedKeys.filter((k) => k.isActive === activeValue)
-  }
-
-  // 标签筛选
-  if (tag) {
-    orderedKeys = orderedKeys.filter((k) => {
-      const tags = Array.isArray(k.tags) ? k.tags : []
-      return tags.includes(tag)
-    })
-  }
-
-  // 搜索筛选
-  if (search) {
-    const lowerSearch = search.toLowerCase().trim()
-    if (searchMode === 'apiKey') {
-      orderedKeys = orderedKeys.filter((k) => k.name && k.name.toLowerCase().includes(lowerSearch))
-    } else if (searchMode === 'bindingAccount') {
-      const accountNameCacheService = require('../../services/accountNameCacheService')
-      orderedKeys = accountNameCacheService.searchByBindingAccount(orderedKeys, lowerSearch)
-    }
-  }
-
-  // 模型筛选
-  if (modelFilter.length > 0) {
-    const keyIdsWithModels = await redis.getKeyIdsWithModels(
-      orderedKeys.map((k) => k.id),
-      modelFilter
-    )
-    orderedKeys = orderedKeys.filter((k) => keyIdsWithModels.has(k.id))
-  }
-
-  // 5. 收集所有可用标签
-  const allTags = new Set()
-  for (const key of allKeys) {
-    if (!key.isDeleted) {
-      const tags = Array.isArray(key.tags) ? key.tags : []
-      tags.forEach((t) => allTags.add(t))
-    }
-  }
-  const availableTags = [...allTags].sort()
-
-  // 6. 分页
-  const total = orderedKeys.length
-  const totalPages = Math.ceil(total / pageSize) || 1
-  const validPage = Math.min(Math.max(1, page), totalPages)
-  const start = (validPage - 1) * pageSize
-  const items = orderedKeys.slice(start, start + pageSize)
-
-  // 7. 为当前页的 Keys 附加费用数据
-  const keyCosts = await costRankService.getBatchKeyCosts(
-    costTimeRange,
-    items.map((k) => k.id)
-  )
-  for (const key of items) {
-    key._cost = keyCosts.get(key.id) || 0
-  }
-
-  return {
-    items,
-    pagination: {
-      page: validPage,
-      pageSize,
-      total,
-      totalPages
-    },
-    availableTags
-  }
-}
-
-/**
- * 使用实时计算进行 custom 时间范围的费用排序
- */
-async function getApiKeysSortedByCostCustom(options) {
-  const {
-    page,
-    pageSize,
-    sortOrder,
-    startDate,
-    endDate,
-    search,
-    searchMode,
-    tag,
-    isActive,
-    modelFilter = []
-  } = options
-  const costRankService = require('../../services/costRankService')
-
-  // 1. 实时计算所有 Keys 的费用
-  const costs = await costRankService.calculateCustomRangeCosts(startDate, endDate)
-
-  if (costs.size === 0) {
-    return {
-      items: [],
-      pagination: { page: 1, pageSize, total: 0, totalPages: 1 },
-      availableTags: []
-    }
-  }
-
-  // 2. 转换为数组并排序
-  const sortedEntries = [...costs.entries()].sort((a, b) =>
-    sortOrder === 'desc' ? b[1] - a[1] : a[1] - b[1]
-  )
-  const rankedKeyIds = sortedEntries.map(([keyId]) => keyId)
-
-  // 3. 批量获取 API Key 基础数据
-  const allKeys = await redis.batchGetApiKeys(rankedKeyIds)
-
-  // 4. 保持排序顺序
-  const keyMap = new Map(allKeys.map((k) => [k.id, k]))
-  let orderedKeys = rankedKeyIds.map((id) => keyMap.get(id)).filter((k) => k && !k.isDeleted)
-
-  // 5. 应用筛选条件
-  // 状态筛选
-  if (isActive !== '' && isActive !== undefined && isActive !== null) {
-    const activeValue = isActive === 'true' || isActive === true
-    orderedKeys = orderedKeys.filter((k) => k.isActive === activeValue)
-  }
-
-  // 标签筛选
-  if (tag) {
-    orderedKeys = orderedKeys.filter((k) => {
-      const tags = Array.isArray(k.tags) ? k.tags : []
-      return tags.includes(tag)
-    })
-  }
-
-  // 搜索筛选
-  if (search) {
-    const lowerSearch = search.toLowerCase().trim()
-    if (searchMode === 'apiKey') {
-      orderedKeys = orderedKeys.filter((k) => k.name && k.name.toLowerCase().includes(lowerSearch))
-    } else if (searchMode === 'bindingAccount') {
-      const accountNameCacheService = require('../../services/accountNameCacheService')
-      orderedKeys = accountNameCacheService.searchByBindingAccount(orderedKeys, lowerSearch)
-    }
-  }
-
-  // 模型筛选
-  if (modelFilter.length > 0) {
-    const keyIdsWithModels = await redis.getKeyIdsWithModels(
-      orderedKeys.map((k) => k.id),
-      modelFilter
-    )
-    orderedKeys = orderedKeys.filter((k) => keyIdsWithModels.has(k.id))
-  }
-
-  // 6. 收集所有可用标签
-  const allTags = new Set()
-  for (const key of allKeys) {
-    if (!key.isDeleted) {
-      const tags = Array.isArray(key.tags) ? key.tags : []
-      tags.forEach((t) => allTags.add(t))
-    }
-  }
-  const availableTags = [...allTags].sort()
-
-  // 7. 分页
-  const total = orderedKeys.length
-  const totalPages = Math.ceil(total / pageSize) || 1
-  const validPage = Math.min(Math.max(1, page), totalPages)
-  const start = (validPage - 1) * pageSize
-  const items = orderedKeys.slice(start, start + pageSize)
-
-  // 8. 为当前页的 Keys 附加费用数据
-  for (const key of items) {
-    key._cost = costs.get(key.id) || 0
-  }
-
-  return {
-    items,
-    pagination: {
-      page: validPage,
-      pageSize,
-      total,
-      totalPages
-    },
-    availableTags
-  }
-}
 
 // 获取费用排序索引状态
 router.get('/api-keys/cost-sort-status', authenticateAdmin, async (req, res) => {
@@ -1255,6 +1040,8 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       enableClientRestriction,
       allowedClients,
       dailyCostLimit,
+      weeklyCostLimit,
+      monthlyCostLimit,
       totalCostLimit,
       weeklyOpusCostLimit,
       tags,
@@ -1415,6 +1202,8 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       enableClientRestriction,
       allowedClients,
       dailyCostLimit,
+      weeklyCostLimit,
+      monthlyCostLimit,
       totalCostLimit,
       weeklyOpusCostLimit,
       tags,
@@ -1457,6 +1246,8 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
       enableClientRestriction,
       allowedClients,
       dailyCostLimit,
+      weeklyCostLimit,
+      monthlyCostLimit,
       totalCostLimit,
       weeklyOpusCostLimit,
       tags,
@@ -1520,6 +1311,8 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
           enableClientRestriction,
           allowedClients,
           dailyCostLimit,
+          weeklyCostLimit,
+          monthlyCostLimit,
           totalCostLimit,
           weeklyOpusCostLimit,
           tags,
@@ -1783,6 +1576,8 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       allowedClients,
       expiresAt,
       dailyCostLimit,
+      weeklyCostLimit,
+      monthlyCostLimit,
       totalCostLimit,
       weeklyOpusCostLimit,
       tags,
@@ -1796,9 +1591,11 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     if (name !== undefined && name !== null && name !== '') {
       const trimmedName = name.toString().trim()
       if (trimmedName.length === 0) {
+        logger.warn('❌ Update failed: API Key name cannot be empty')
         return res.status(400).json({ error: 'API Key name cannot be empty' })
       }
       if (trimmedName.length > 100) {
+        logger.warn('❌ Update failed: API Key name too long')
         return res.status(400).json({ error: 'API Key name must be less than 100 characters' })
       }
       updates.name = trimmedName
@@ -1806,6 +1603,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
 
     if (tokenLimit !== undefined && tokenLimit !== null && tokenLimit !== '') {
       if (!Number.isInteger(Number(tokenLimit)) || Number(tokenLimit) < 0) {
+        logger.warn(`❌ Update failed: Invalid tokenLimit: ${tokenLimit}`)
         return res.status(400).json({ error: 'Token limit must be a non-negative integer' })
       }
       updates.tokenLimit = Number(tokenLimit)
@@ -1813,6 +1611,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
 
     if (concurrencyLimit !== undefined && concurrencyLimit !== null && concurrencyLimit !== '') {
       if (!Number.isInteger(Number(concurrencyLimit)) || Number(concurrencyLimit) < 0) {
+        logger.warn(`❌ Update failed: Invalid concurrencyLimit: ${concurrencyLimit}`)
         return res.status(400).json({ error: 'Concurrency limit must be a non-negative integer' })
       }
       updates.concurrencyLimit = Number(concurrencyLimit)
@@ -1829,6 +1628,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
 
     if (rateLimitRequests !== undefined && rateLimitRequests !== null && rateLimitRequests !== '') {
       if (!Number.isInteger(Number(rateLimitRequests)) || Number(rateLimitRequests) < 0) {
+        logger.warn(`❌ Update failed: Invalid rateLimitRequests: ${rateLimitRequests}`)
         return res.status(400).json({ error: 'Rate limit requests must be a non-negative integer' })
       }
       updates.rateLimitRequests = Number(rateLimitRequests)
@@ -1837,6 +1637,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     if (rateLimitCost !== undefined && rateLimitCost !== null && rateLimitCost !== '') {
       const cost = Number(rateLimitCost)
       if (isNaN(cost) || cost < 0) {
+        logger.warn(`❌ Update failed: Invalid rateLimitCost: ${rateLimitCost}`)
         return res.status(400).json({ error: 'Rate limit cost must be a non-negative number' })
       }
       updates.rateLimitCost = cost
@@ -1873,10 +1674,17 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     }
 
     if (permissions !== undefined) {
-      // 验证权限值
-      if (!['claude', 'gemini', 'openai', 'droid', 'all'].includes(permissions)) {
+      // 验证权限值 (支持逗号分隔的多选)
+      const validPermissions = ['claude', 'gemini', 'openai', 'droid', 'all']
+      const inputPermissions = permissions.split(',').map((p) => p.trim())
+
+      const isValid = inputPermissions.every((p) => validPermissions.includes(p))
+
+      if (!isValid) {
+        logger.warn(`❌ Invalid permissions update attempt: ${permissions}`)
         return res.status(400).json({
-          error: 'Invalid permissions value. Must be claude, gemini, openai, droid, or all'
+          error:
+            'Invalid permissions value. Must be comma-separated values of: claude, gemini, openai, droid, all'
         })
       }
       updates.permissions = permissions
@@ -1885,6 +1693,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     // 处理模型限制字段
     if (enableModelRestriction !== undefined) {
       if (typeof enableModelRestriction !== 'boolean') {
+        logger.warn(`❌ Update failed: Invalid enableModelRestriction: ${enableModelRestriction}`)
         return res.status(400).json({ error: 'Enable model restriction must be a boolean' })
       }
       updates.enableModelRestriction = enableModelRestriction
@@ -1892,6 +1701,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
 
     if (restrictedModels !== undefined) {
       if (!Array.isArray(restrictedModels)) {
+        logger.warn(`❌ Update failed: restrictedModels not array: ${typeof restrictedModels}`)
         return res.status(400).json({ error: 'Restricted models must be an array' })
       }
       updates.restrictedModels = restrictedModels
@@ -1900,6 +1710,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     // 处理客户端限制字段
     if (enableClientRestriction !== undefined) {
       if (typeof enableClientRestriction !== 'boolean') {
+        logger.warn(`❌ Update failed: Invalid enableClientRestriction: ${enableClientRestriction}`)
         return res.status(400).json({ error: 'Enable client restriction must be a boolean' })
       }
       updates.enableClientRestriction = enableClientRestriction
@@ -1907,6 +1718,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
 
     if (allowedClients !== undefined) {
       if (!Array.isArray(allowedClients)) {
+        logger.warn(`❌ Update failed: allowedClients not array: ${typeof allowedClients}`)
         return res.status(400).json({ error: 'Allowed clients must be an array' })
       }
       updates.allowedClients = allowedClients
@@ -1922,6 +1734,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
         // 验证日期格式
         const expireDate = new Date(expiresAt)
         if (isNaN(expireDate.getTime())) {
+          logger.warn(`❌ Update failed: Invalid expiresAt: ${expiresAt}`)
           return res.status(400).json({ error: 'Invalid expiration date format' })
         }
         updates.expiresAt = expiresAt
@@ -1933,6 +1746,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     if (dailyCostLimit !== undefined && dailyCostLimit !== null && dailyCostLimit !== '') {
       const costLimit = Number(dailyCostLimit)
       if (isNaN(costLimit) || costLimit < 0) {
+        logger.warn(`❌ Update failed: Invalid dailyCostLimit: ${dailyCostLimit}`)
         return res.status(400).json({ error: 'Daily cost limit must be a non-negative number' })
       }
       updates.dailyCostLimit = costLimit
@@ -1941,9 +1755,30 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     if (totalCostLimit !== undefined && totalCostLimit !== null && totalCostLimit !== '') {
       const costLimit = Number(totalCostLimit)
       if (isNaN(costLimit) || costLimit < 0) {
+        logger.warn(`❌ Update failed: Invalid totalCostLimit: ${totalCostLimit}`)
         return res.status(400).json({ error: 'Total cost limit must be a non-negative number' })
       }
       updates.totalCostLimit = costLimit
+    }
+
+    // 处理每周费用限制
+    if (weeklyCostLimit !== undefined && weeklyCostLimit !== null && weeklyCostLimit !== '') {
+      const costLimit = Number(weeklyCostLimit)
+      if (isNaN(costLimit) || costLimit < 0) {
+        logger.warn(`❌ Update failed: Invalid weeklyCostLimit: ${weeklyCostLimit}`)
+        return res.status(400).json({ error: 'Weekly cost limit must be a non-negative number' })
+      }
+      updates.weeklyCostLimit = costLimit
+    }
+
+    // 处理每月费用限制
+    if (monthlyCostLimit !== undefined && monthlyCostLimit !== null && monthlyCostLimit !== '') {
+      const costLimit = Number(monthlyCostLimit)
+      if (isNaN(costLimit) || costLimit < 0) {
+        logger.warn(`❌ Update failed: Invalid monthlyCostLimit: ${monthlyCostLimit}`)
+        return res.status(400).json({ error: 'Monthly cost limit must be a non-negative number' })
+      }
+      updates.monthlyCostLimit = costLimit
     }
 
     // 处理 Opus 周费用限制
@@ -1965,9 +1800,11 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     // 处理标签
     if (tags !== undefined) {
       if (!Array.isArray(tags)) {
+        logger.warn(`❌ Update failed: tags not array: ${typeof tags}`)
         return res.status(400).json({ error: 'Tags must be an array' })
       }
       if (tags.some((tag) => typeof tag !== 'string' || tag.trim().length === 0)) {
+        logger.warn(`❌ Update failed: invalid tag content`)
         return res.status(400).json({ error: 'All tags must be non-empty strings' })
       }
       updates.tags = tags
@@ -1976,6 +1813,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
     // 处理活跃/禁用状态状态, 放在过期处理后，以确保后续增加禁用key功能
     if (isActive !== undefined) {
       if (typeof isActive !== 'boolean') {
+        logger.warn(`❌ Update failed: Invalid isActive: ${isActive} (${typeof isActive})`)
         return res.status(400).json({ error: 'isActive must be a boolean' })
       }
       updates.isActive = isActive
@@ -1993,11 +1831,32 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       } else if (ownerId) {
         // 分配给用户
         try {
-          const user = await userService.getUserById(ownerId, false)
+          // 1. 尝试从 Redis 获取 (旧用户系统)
+          let user = await userService.getUserById(ownerId, false)
+          let userSource = 'redis'
+
+          // 2. 如果 Redis 中未找到，尝试从 PostgreSQL 获取 (新用户系统)
           if (!user) {
+            const emailUserService = require('../../services/emailAuth/emailUserService')
+            const emailUser = await emailUserService.getUserById(ownerId)
+            if (emailUser) {
+              user = emailUser
+              userSource = 'postgres'
+              // 邮箱用户的 username 即为 email
+              user.username = user.email
+              // 模拟 isActive 属性 (如果不包含)
+              if (user.status !== undefined && user.isActive === undefined) {
+                user.isActive = user.status === 'active'
+              }
+            }
+          }
+
+          if (!user) {
+            logger.warn(`❌ Update failed: User not found for ownerId: ${ownerId}`)
             return res.status(400).json({ error: 'Invalid owner: User not found' })
           }
           if (!user.isActive) {
+            logger.warn(`❌ Update failed: User inactive: ${user.username}`)
             return res.status(400).json({ error: 'Cannot assign to inactive user' })
           }
 
@@ -2007,7 +1866,9 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
           updates.createdBy = user.username
 
           // 管理员重新分配时，不检查用户的API Key数量限制
-          logger.info(`🔄 Admin reassigning API key ${keyId} to user ${user.username}`)
+          logger.info(
+            `🔄 Admin reassigning API key ${keyId} to ${userSource} user ${user.username}`
+          )
         } catch (error) {
           logger.error('Error fetching user for owner reassignment:', error)
           return res.status(400).json({ error: 'Invalid owner ID' })

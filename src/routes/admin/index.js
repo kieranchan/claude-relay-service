@@ -26,6 +26,10 @@ const concurrencyRoutes = require('./concurrency')
 const claudeRelayConfigRoutes = require('./claudeRelayConfig')
 const syncRoutes = require('./sync')
 const couponRoutes = require('./couponRoutes')
+const emailUsersRoutes = require('./emailUsers')
+const auditLogsRoutes = require('./auditLogs')
+const notificationRoutes = require('./notifications')
+const notificationTemplateRoutes = require('./notificationTemplates')
 
 // 挂载所有子路由
 // 使用完整路径的模块（直接挂载到根路径）
@@ -50,5 +54,9 @@ router.use('/bedrock-accounts', bedrockAccountsRoutes)
 router.use('/gemini-accounts', geminiAccountsRoutes)
 router.use('/openai-accounts', openaiAccountsRoutes)
 router.use('/coupons', couponRoutes)
+router.use('/email-users', emailUsersRoutes)
+router.use('/audit-logs', auditLogsRoutes)
+router.use('/notifications', notificationRoutes)
+router.use('/notification-templates', notificationTemplateRoutes)
 
 module.exports = router

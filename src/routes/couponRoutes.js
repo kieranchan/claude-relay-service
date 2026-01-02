@@ -6,15 +6,15 @@
 const express = require('express')
 const router = express.Router()
 const couponService = require('../services/coupons')
-const { authenticateUser } = require('../middleware/auth')
+const { authenticateJwt } = require('../middleware/authenticateJwt')
 
 /**
  * GET /api/v1/coupons/available
  * 获取可领取的优惠券列表
  */
-router.get('/available', authenticateUser, async (req, res) => {
+router.get('/available', authenticateJwt, async (req, res) => {
   try {
-    const userId = req.user.id
+    const userId = req.emailUser.id
     const coupons = await couponService.getAvailableCoupons(userId)
 
     res.json({
@@ -37,9 +37,9 @@ router.get('/available', authenticateUser, async (req, res) => {
  * GET /api/v1/coupons/my
  * 获取我的优惠券列表
  */
-router.get('/my', authenticateUser, async (req, res) => {
+router.get('/my', authenticateJwt, async (req, res) => {
   try {
-    const userId = req.user.id
+    const userId = req.emailUser.id
     const { status } = req.query
     const coupons = await couponService.getMyCoupons(userId, status)
 
@@ -63,9 +63,9 @@ router.get('/my', authenticateUser, async (req, res) => {
  * POST /api/v1/coupons/receive/:id
  * 领取优惠券
  */
-router.post('/receive/:id', authenticateUser, async (req, res) => {
+router.post('/receive/:id', authenticateJwt, async (req, res) => {
   try {
-    const userId = req.user.id
+    const userId = req.emailUser.id
     const couponId = req.params.id
     const result = await couponService.receiveCoupon(userId, couponId)
 
@@ -103,9 +103,9 @@ router.post('/receive/:id', authenticateUser, async (req, res) => {
  * POST /api/v1/coupons/exchange
  * 兑换优惠码
  */
-router.post('/exchange', authenticateUser, async (req, res) => {
+router.post('/exchange', authenticateJwt, async (req, res) => {
   try {
-    const userId = req.user.id
+    const userId = req.emailUser.id
     const { code } = req.body
 
     if (!code) {
@@ -149,9 +149,9 @@ router.post('/exchange', authenticateUser, async (req, res) => {
  * POST /api/v1/coupons/validate
  * 验证优惠券（下单前调用）
  */
-router.post('/validate', authenticateUser, async (req, res) => {
+router.post('/validate', authenticateJwt, async (req, res) => {
   try {
-    const userId = req.user.id
+    const userId = req.emailUser.id
     const { coupon_code, plan_id, amount } = req.body
 
     if (!coupon_code || !plan_id || amount === undefined) {

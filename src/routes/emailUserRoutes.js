@@ -132,6 +132,7 @@ router.get('/keys', authenticateJwt, requireEmailVerified, async (req, res) => {
           usage: flatUsage,
           dailyCost: keyData.dailyCost,
           dailyCostLimit: keyData.dailyCostLimit,
+          weeklyCostLimit: keyData.weeklyCostLimit,
           totalCost: keyData.totalCost,
           totalCostLimit: keyData.totalCostLimit,
           // 只返回 Key 预览，不返回完整 Key
@@ -152,129 +153,6 @@ router.get('/keys', authenticateJwt, requireEmailVerified, async (req, res) => {
     res.status(500).json({
       success: false,
       error: { code: 'SERVER_ERROR', message: '获取 API Keys 失败' }
-    })
-  }
-})
-
-/**
- * POST /api/v1/user/keys
- * 创建新的 API Key
- */
-router.post('/keys', authenticateJwt, requireEmailVerified, async (req, res) => {
-  try {
-    const { name, description, expiresAt, dailyCostLimit, totalCostLimit } = req.body
-
-    if (!name || !name.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'API Key 名称不能为空' }
-      })
-    }
-
-    // 检查用户 API Key 数量限制
-    const currentCount = await emailUserService.getUserApiKeyCount(req.emailUser.id)
-    if (currentCount >= MAX_API_KEYS_PER_USER) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'LIMIT_EXCEEDED',
-          message: `最多只能创建 ${MAX_API_KEYS_PER_USER} 个 API Keys`
-        }
-      })
-    }
-
-    // 创建 API Key
-    const apiKeyData = {
-      name: name.trim(),
-      description: description?.trim() || '',
-      userId: req.emailUser.id,
-      userUsername: req.emailUser.email,
-      expiresAt: expiresAt || null,
-      dailyCostLimit: dailyCostLimit || null,
-      totalCostLimit: totalCostLimit || null,
-      createdBy: 'email_user',
-      permissions: 'all'
-    }
-
-    const newApiKey = await apiKeyService.createApiKey(apiKeyData)
-
-    // 关联 API Key 到用户
-    await emailUserService.addApiKeyToUser(req.emailUser.id, newApiKey.id)
-
-    logger.info(`🔑 Email user ${req.emailUser.email} created API key: ${name}`)
-
-    res.status(201).json({
-      success: true,
-      message: 'API Key 创建成功',
-      data: {
-        id: newApiKey.id,
-        name: newApiKey.name,
-        description: newApiKey.description,
-        key: newApiKey.apiKey, // 只在创建时返回完整 Key
-        createdAt: newApiKey.createdAt,
-        expiresAt: newApiKey.expiresAt,
-        dailyCostLimit: newApiKey.dailyCostLimit,
-        totalCostLimit: newApiKey.totalCostLimit
-      }
-    })
-  } catch (error) {
-    logger.error('Create API key error:', error)
-    res.status(500).json({
-      success: false,
-      error: { code: 'SERVER_ERROR', message: '创建 API Key 失败' }
-    })
-  }
-})
-
-/**
- * DELETE /api/v1/user/keys/:id
- * 删除 API Key
- */
-router.delete('/keys/:id', authenticateJwt, requireEmailVerified, async (req, res) => {
-  try {
-    const { id } = req.params
-
-    // 检查是否允许用户删除 API Key
-    if (!ALLOW_USER_DELETE_API_KEYS) {
-      return res.status(403).json({
-        success: false,
-        error: {
-          code: 'OPERATION_NOT_ALLOWED',
-          message: '不允许删除 API Keys，请联系管理员'
-        }
-      })
-    }
-
-    // 检查 API Key 是否属于当前用户
-    const userKeyIds = await emailUserService.getUserApiKeyIds(req.emailUser.id)
-    if (!userKeyIds.includes(id)) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'KEY_NOT_FOUND', message: 'API Key 不存在或无权访问' }
-      })
-    }
-
-    // 获取 API Key 信息用于日志
-    const keyData = await apiKeyService.getApiKeyById(id)
-    const keyName = keyData?.name || id
-
-    // 删除 API Key
-    await apiKeyService.deleteApiKey(id, req.emailUser.email, 'email_user')
-
-    // 移除用户关联
-    await emailUserService.removeApiKeyFromUser(req.emailUser.id, id)
-
-    logger.info(`🗑️ Email user ${req.emailUser.email} deleted API key: ${keyName}`)
-
-    res.json({
-      success: true,
-      message: 'API Key 已删除'
-    })
-  } catch (error) {
-    logger.error('Delete API key error:', error)
-    res.status(500).json({
-      success: false,
-      error: { code: 'SERVER_ERROR', message: '删除 API Key 失败' }
     })
   }
 })

@@ -8,6 +8,7 @@ const logger = require('../../utils/logger')
 const { generateOrderId } = require('../../utils/orderIdGenerator')
 const { calculatePrice } = require('../../utils/priceCalculator')
 const subscriptionService = require('../subscriptions/subscriptionService')
+const { provisionApiKeyForSubscription } = require('../subscriptions/apiKeyProvisioner')
 
 // 订单过期时间（分钟）
 const ORDER_EXPIRE_MINUTES = 15
@@ -252,7 +253,8 @@ async function updatePaymentInfo(orderId, paymentInfo) {
  */
 async function handlePaymentSuccess(orderId, transactionId) {
   const order = await prisma.order.findUnique({
-    where: { id: orderId }
+    where: { id: orderId },
+    include: { plan: true }
   })
 
   if (!order) {
@@ -292,6 +294,22 @@ async function handlePaymentSuccess(orderId, transactionId) {
 
     return { order: updatedOrder, subscription }
   })
+
+  // 4. 为用户配置 API Key（事务外执行，避免阻塞）
+  try {
+    const apiKeyResult = await provisionApiKeyForSubscription({
+      userId: order.userId,
+      plan: order.plan,
+      subscription: result.subscription
+    })
+    logger.info(`API Key 配置完成: ${apiKeyResult.action}`, {
+      keyId: apiKeyResult.keyId || apiKeyResult.id,
+      userId: order.userId
+    })
+  } catch (err) {
+    // API Key 配置失败不影响订单和订阅，只记录日志
+    logger.error(`API Key 配置失败: ${err.message}`, { orderId, userId: order.userId })
+  }
 
   logger.info(`订单支付成功: ${orderId}`, {
     transactionId,

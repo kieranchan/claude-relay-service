@@ -127,6 +127,7 @@ const authenticateJwtOptional = async (req, res, next) => {
 /**
  * 管理员权限检查中间件
  * 需要在 authenticateJwt 之后使用
+ * 支持 admin 和 super_admin 角色
  */
 const requireEmailAdmin = (req, res, next) => {
   if (!req.emailUser) {
@@ -136,7 +137,8 @@ const requireEmailAdmin = (req, res, next) => {
     })
   }
 
-  if (req.emailUser.role !== 'admin') {
+  const allowedRoles = ['admin', 'super_admin']
+  if (!allowedRoles.includes(req.emailUser.role)) {
     logger.security(`🚫 Admin access denied for email user: ${req.emailUser.email}`)
     return res.status(403).json({
       success: false,

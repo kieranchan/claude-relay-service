@@ -9,6 +9,7 @@ const express = require('express')
 const { body, validationResult } = require('express-validator')
 const router = express.Router()
 const { emailAuthService } = require('../services/emailAuth')
+const loginAttemptService = require('../services/loginAttemptService')
 const { authenticateJwt } = require('../middleware/authenticateJwt')
 const logger = require('../utils/logger')
 
@@ -126,11 +127,35 @@ router.post('/login', loginValidation, handleValidationErrors, async (req, res) 
     const { email, password } = req.body
     const ip = req.ip || req.connection?.remoteAddress || 'unknown'
 
+    // 检查登录尝试次数 (防暴力破解)
+    const failures = await loginAttemptService.countRecentFailures(email, ip)
+    if (failures >= 5) {
+      // 记录这次被拦截的尝试
+      await loginAttemptService.recordAttempt(email, ip, false)
+      return res.status(429).json({
+        success: false,
+        error: {
+          code: 'AUTH_TOO_MANY_ATTEMPTS',
+          message: '登录失败次数过多，请15分钟后再试'
+        }
+      })
+    }
+
     const result = await emailAuthService.login({ email, password, ip })
+
+    // 记录成功登录
+    await loginAttemptService.recordAttempt(email, ip, true)
 
     res.json(result)
   } catch (error) {
     logger.error('Login error:', error)
+
+    // 记录失败登录
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown'
+    // 注意：如果是 req.body 读取不到导致 crash，这里 email 可能是 undefined，需要处理
+    if (req.body && req.body.email) {
+      await loginAttemptService.recordAttempt(req.body.email, ip, false)
+    }
 
     // 处理各种登录错误
     if (error.code === 'AUTH_003') {

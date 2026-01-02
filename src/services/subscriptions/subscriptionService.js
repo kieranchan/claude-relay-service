@@ -98,7 +98,8 @@ async function getCurrentSubscription(userId) {
       status: 'active'
     },
     include: {
-      plan: true
+      plan: true,
+      apiKey: true // 关联的 API Key
     },
     orderBy: { createdAt: 'desc' }
   })
@@ -769,6 +770,20 @@ function formatSubscriptionResponse(subscription) {
 
   const remainingDaysValue = daysRemaining(subscription.expireDate)
 
+  // 构建 API Key 信息
+  let apiKeyInfo = null
+  if (subscription.apiKey && !subscription.apiKey.isDeleted) {
+    apiKeyInfo = {
+      id: subscription.apiKey.id,
+      name: subscription.apiKey.name,
+      isActive: subscription.apiKey.isActive,
+      expiresAt: subscription.apiKey.expiresAt,
+      dailyCostLimit: Number(subscription.apiKey.dailyCostLimit || 0),
+      weeklyCostLimit: Number(subscription.apiKey.weeklyCostLimit || 0),
+      permissions: subscription.apiKey.permissions || 'all'
+    }
+  }
+
   return {
     subscriptionId: subscription.id,
     plan: {
@@ -783,6 +798,7 @@ function formatSubscriptionResponse(subscription) {
     autoRenew: subscription.autoRenew,
     nextBillingDate: subscription.nextBillingDate ? formatDate(subscription.nextBillingDate) : null,
     features: planSnapshot?.features || {},
+    apiKey: apiKeyInfo,
     createdAt: subscription.createdAt
   }
 }

@@ -83,11 +83,15 @@ async function createPlan(data, adminId) {
   const prisma = getPrismaClient()
 
   // 验证必填字段
-  const requiredFields = ['id', 'name', 'type', 'price', 'features']
+  const requiredFields = ['id', 'name', 'type', 'features']
   for (const field of requiredFields) {
-    if (!data[field]) {
+    if (data[field] === undefined || data[field] === null) {
       throw new Error(`缺少必填字段: ${field}`)
     }
+  }
+  // price 可以为 0（免费套餐）
+  if (data.price === undefined || data.price === null) {
+    throw new Error('缺少必填字段: price')
   }
 
   // 检查ID是否已存在

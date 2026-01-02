@@ -167,7 +167,30 @@
                   已使用 {{ Math.min(dailyCostPercentage, 100).toFixed(1) }}%
                 </div>
               </div>
-
+              <div v-if="weeklyCostLimit > 0" class="space-y-1.5">
+                <LimitProgressBar
+                  :current="weeklyCost"
+                  label="每周费用限制"
+                  :limit="weeklyCostLimit"
+                  :show-shine="true"
+                  type="weekly"
+                />
+                <div class="text-right text-xs text-gray-500 dark:text-gray-400">
+                  已使用 {{ Math.min(weeklyCostPercentage, 100).toFixed(1) }}%
+                </div>
+              </div>
+              <div v-if="monthlyCostLimit > 0" class="space-y-1.5">
+                <LimitProgressBar
+                  :current="monthlyCost"
+                  label="每月费用限制"
+                  :limit="monthlyCostLimit"
+                  :show-shine="true"
+                  type="monthly"
+                />
+                <div class="text-right text-xs text-gray-500 dark:text-gray-400">
+                  已使用 {{ Math.min(monthlyCostPercentage, 100).toFixed(1) }}%
+                </div>
+              </div>
               <div v-if="apiKey.weeklyOpusCostLimit > 0" class="space-y-1.5">
                 <LimitProgressBar
                   :current="weeklyOpusCost"
@@ -269,6 +292,10 @@ const dailyTokens = computed(() => props.apiKey.usage?.daily?.tokens || 0)
 const totalCost = computed(() => props.apiKey.usage?.total?.cost || 0)
 const dailyCost = computed(() => props.apiKey.dailyCost || 0)
 const totalCostLimit = computed(() => props.apiKey.totalCostLimit || 0)
+const weeklyCost = computed(() => props.apiKey.weeklyCost || 0)
+const weeklyCostLimit = computed(() => props.apiKey.weeklyCostLimit || 0)
+const monthlyCost = computed(() => props.apiKey.monthlyCost || 0)
+const monthlyCostLimit = computed(() => props.apiKey.monthlyCostLimit || 0)
 const weeklyOpusCost = computed(() => props.apiKey.weeklyOpusCost || 0)
 const weeklyOpusCostLimit = computed(() => props.apiKey.weeklyOpusCostLimit || 0)
 const inputTokens = computed(() => props.apiKey.usage?.total?.inputTokens || 0)
@@ -283,6 +310,8 @@ const hasLimits = computed(() => {
     props.apiKey.dailyCostLimit > 0 ||
     props.apiKey.totalCostLimit > 0 ||
     props.apiKey.concurrencyLimit > 0 ||
+    props.apiKey.weeklyCostLimit > 0 ||
+    props.apiKey.monthlyCostLimit > 0 ||
     props.apiKey.weeklyOpusCostLimit > 0 ||
     props.apiKey.rateLimitWindow > 0 ||
     props.apiKey.tokenLimit > 0
@@ -292,6 +321,16 @@ const hasLimits = computed(() => {
 const dailyCostPercentage = computed(() => {
   if (!props.apiKey.dailyCostLimit || props.apiKey.dailyCostLimit === 0) return 0
   return (dailyCost.value / props.apiKey.dailyCostLimit) * 100
+})
+
+const weeklyCostPercentage = computed(() => {
+  if (!props.apiKey.weeklyCostLimit || props.apiKey.weeklyCostLimit === 0) return 0
+  return (weeklyCost.value / props.apiKey.weeklyCostLimit) * 100
+})
+
+const monthlyCostPercentage = computed(() => {
+  if (!monthlyCostLimit.value || monthlyCostLimit.value === 0) return 0
+  return (monthlyCost.value / monthlyCostLimit.value) * 100
 })
 
 const totalUsagePercentage = computed(() => {

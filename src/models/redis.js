@@ -50,6 +50,14 @@ function getWeekStringInTimezone(date = new Date()) {
   return `${year}-W${String(weekNumber).padStart(2, '0')}`
 }
 
+// 获取当前月份字符串（UTC+8）
+function getMonthStringInTimezone() {
+  const date = getDateInTimezone()
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  return `${year}-${month}`
+}
+
 // 并发队列相关常量
 const QUEUE_STATS_TTL_SECONDS = 86400 * 7 // 统计计数保留 7 天
 const WAIT_TIME_TTL_SECONDS = 86400 // 等待时间样本保留 1 天（滚动窗口，无需长期保留）
@@ -1051,6 +1059,46 @@ class RedisClient {
     ])
 
     logger.debug(`💰 Cost incremented successfully, new daily total: $${results[0]}`)
+  }
+
+  // 💰 获取周费用统计
+  async getWeeklyCost(keyId) {
+    const currentWeek = getWeekStringInTimezone()
+    const costKey = `usage:cost:weekly:${keyId}:${currentWeek}`
+    const cost = await this.client.get(costKey)
+    return parseFloat(cost || 0)
+  }
+
+  // 💰 增加周费用统计 (新增)
+  async incrementWeeklyCost(keyId, amount) {
+    const currentWeek = getWeekStringInTimezone()
+    const weeklyKey = `usage:cost:weekly:${keyId}:${currentWeek}`
+
+    const pipeline = this.client.pipeline()
+    pipeline.incrbyfloat(weeklyKey, amount)
+    pipeline.expire(weeklyKey, 86400 * 14) // 2周过期
+
+    await pipeline.exec()
+  }
+
+  // 💰 获取月费用统计
+  async getMonthlyCost(keyId) {
+    const currentMonth = getMonthStringInTimezone()
+    const costKey = `usage:cost:monthly:${keyId}:${currentMonth}`
+    const cost = await this.client.get(costKey)
+    return parseFloat(cost || 0)
+  }
+
+  // 💰 增加月费用统计
+  async incrementMonthlyCost(keyId, amount) {
+    const currentMonth = getMonthStringInTimezone()
+    const monthlyKey = `usage:cost:monthly:${keyId}:${currentMonth}`
+
+    const pipeline = this.client.pipeline()
+    pipeline.incrbyfloat(monthlyKey, amount)
+    pipeline.expire(monthlyKey, 86400 * 60) // 60天过期
+
+    await pipeline.exec()
   }
 
   // 💰 获取费用统计

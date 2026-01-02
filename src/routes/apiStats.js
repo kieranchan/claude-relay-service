@@ -148,6 +148,7 @@ router.post('/api/user-stats', async (req, res) => {
         rateLimitWindow: parseInt(keyData.rateLimitWindow) || 0,
         rateLimitRequests: parseInt(keyData.rateLimitRequests) || 0,
         dailyCostLimit: parseFloat(keyData.dailyCostLimit) || 0,
+        weeklyCostLimit: parseFloat(keyData.weeklyCostLimit) || 0,
         totalCostLimit: parseFloat(keyData.totalCostLimit) || 0,
         dailyCost: dailyCost || 0,
         totalCost: costStats.total || 0,
@@ -306,6 +307,8 @@ router.post('/api/user-stats', async (req, res) => {
     let currentWindowTokens = 0
     let currentWindowCost = 0 // 新增：当前窗口费用
     let currentDailyCost = 0
+    let currentWeeklyCost = 0
+    let currentMonthlyCost = 0
     let windowStartTime = null
     let windowEndTime = null
     let windowRemainingSeconds = null
@@ -349,6 +352,10 @@ router.post('/api/user-stats', async (req, res) => {
 
       // 获取当日费用
       currentDailyCost = (await redis.getDailyCost(keyId)) || 0
+      // 获取本周费用
+      currentWeeklyCost = (await redis.getWeeklyCost(keyId)) || 0
+      // 获取本月费用
+      currentMonthlyCost = (await redis.getMonthlyCost(keyId)) || 0
     } catch (error) {
       logger.warn(`Failed to get current usage for key ${keyId}:`, error)
     }
@@ -437,6 +444,8 @@ router.post('/api/user-stats', async (req, res) => {
         rateLimitRequests: fullKeyData.rateLimitRequests || 0,
         rateLimitCost: parseFloat(fullKeyData.rateLimitCost) || 0, // 新增：费用限制
         dailyCostLimit: fullKeyData.dailyCostLimit || 0,
+        weeklyCostLimit: fullKeyData.weeklyCostLimit || 0,
+        monthlyCostLimit: fullKeyData.monthlyCostLimit || 0,
         totalCostLimit: fullKeyData.totalCostLimit || 0,
         weeklyOpusCostLimit: parseFloat(fullKeyData.weeklyOpusCostLimit) || 0, // Opus 周费用限制
         // 当前使用量
@@ -444,6 +453,8 @@ router.post('/api/user-stats', async (req, res) => {
         currentWindowTokens,
         currentWindowCost, // 新增：当前窗口费用
         currentDailyCost,
+        currentWeeklyCost,
+        currentMonthlyCost,
         currentTotalCost: totalCost,
         weeklyOpusCost: (await redis.getWeeklyOpusCost(keyId)) || 0, // 当前 Opus 周费用
         // 时间窗口信息

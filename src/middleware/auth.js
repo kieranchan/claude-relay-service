@@ -1212,6 +1212,74 @@ const authenticateApiKey = async (req, res, next) => {
       )
     }
 
+    // 检查每周费用限制 (New Feature)
+    const weeklyCostLimit = validation.keyData.weeklyCostLimit || 0
+    if (weeklyCostLimit > 0) {
+      const weeklyCost = validation.keyData.weeklyCost || 0
+
+      if (weeklyCost >= weeklyCostLimit) {
+        logger.security(
+          `💰 Weekly cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
+          }), cost: $${weeklyCost.toFixed(2)}/$${weeklyCostLimit}`
+        )
+
+        // 计算下周一的重置时间
+        const now = new Date()
+        const dayOfWeek = now.getDay()
+        const daysUntilMonday = dayOfWeek === 0 ? 1 : (8 - dayOfWeek) % 7 || 7
+        const resetDate = new Date(now)
+        resetDate.setDate(now.getDate() + daysUntilMonday)
+        resetDate.setHours(0, 0, 0, 0)
+
+        return res.status(429).json({
+          error: 'Weekly cost limit exceeded',
+          message: `已达到每周费用限制 ($${weeklyCostLimit})`,
+          currentCost: weeklyCost,
+          costLimit: weeklyCostLimit,
+          resetAt: resetDate.toISOString() // 下周一重置
+        })
+      }
+
+      logger.api(
+        `💰 Weekly cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
+        }), current: $${weeklyCost.toFixed(2)}/$${weeklyCostLimit}`
+      )
+    }
+
+    // 检查每月费用限制
+    const monthlyCostLimit = validation.keyData.monthlyCostLimit || 0
+    if (monthlyCostLimit > 0) {
+      const monthlyCost = validation.keyData.monthlyCost || 0
+
+      if (monthlyCost >= monthlyCostLimit) {
+        logger.security(
+          `💰 Monthly cost limit exceeded for key: ${validation.keyData.id} (${
+            validation.keyData.name
+          }), cost: $${monthlyCost.toFixed(2)}/$${monthlyCostLimit}`
+        )
+
+        // 计算下月1日的重置时间
+        const now = new Date()
+        const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0)
+
+        return res.status(429).json({
+          error: 'Monthly cost limit exceeded',
+          message: `已达到每月费用限制 ($${monthlyCostLimit})`,
+          currentCost: monthlyCost,
+          costLimit: monthlyCostLimit,
+          resetAt: resetDate.toISOString() // 下月1日重置
+        })
+      }
+
+      logger.api(
+        `💰 Monthly cost usage for key: ${validation.keyData.id} (${
+          validation.keyData.name
+        }), current: $${monthlyCost.toFixed(2)}/$${monthlyCostLimit}`
+      )
+    }
+
     // 检查总费用限制
     const totalCostLimit = validation.keyData.totalCostLimit || 0
     if (totalCostLimit > 0) {

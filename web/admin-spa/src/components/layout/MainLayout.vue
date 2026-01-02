@@ -40,7 +40,10 @@ const tabRouteMap = computed(() => {
     apiKeys: '/api-keys',
     accounts: '/accounts',
     tutorial: '/tutorial',
-    settings: '/settings'
+    settings: '/settings',
+    emailUsers: '/email-users',
+    auditLogs: '/audit-logs',
+    notifications: '/notifications'
   }
 
   // 只有在 LDAP 启用时才包含用户管理路由

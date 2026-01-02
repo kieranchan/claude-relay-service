@@ -449,4 +449,81 @@ router.post('/payment/callback/stripe', async (req, res) => {
   }
 })
 
+// ========================================
+// 测试路由（仅开发环境）
+// ========================================
+
+/**
+ * POST /api/v1/orders/test/simulate-payment
+ * 模拟支付成功（仅在 TEST_MODE=true 时可用）
+ * 用于测试订阅-API Key 自动创建流程
+ */
+router.post('/test/simulate-payment', authenticateJwt, async (req, res) => {
+  // 检查是否启用测试模式
+  if (process.env.TEST_MODE !== 'true') {
+    return res.status(403).json({
+      success: false,
+      error: {
+        code: 'TEST_MODE_DISABLED',
+        message: '测试模式未启用。请在 .env 中设置 TEST_MODE=true'
+      }
+    })
+  }
+
+  try {
+    const { order_id } = req.body
+    const userId = req.emailUser.id
+
+    if (!order_id) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_ORDER_ID', message: '订单ID不能为空' }
+      })
+    }
+
+    // 验证订单属于当前用户
+    const order = await orderService.getOrderById(order_id, userId)
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'ORDER_NOT_FOUND', message: '订单不存在' }
+      })
+    }
+
+    if (order.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_STATUS', message: '订单状态不是待支付' }
+      })
+    }
+
+    // 模拟支付成功
+    const transactionId = `TEST_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const result = await orderService.handlePaymentSuccess(order_id, transactionId)
+
+    logger.info(`🧪 [TEST] 模拟支付成功: ${order_id}`, {
+      userId,
+      transactionId,
+      subscriptionId: result.subscription?.id
+    })
+
+    res.json({
+      success: true,
+      message: '✅ 测试支付成功！订阅和 API Key 已创建',
+      data: {
+        orderId: order_id,
+        transactionId,
+        subscription: result.subscription,
+        apiKeyCreated: true
+      }
+    })
+  } catch (error) {
+    logger.error(`测试支付模拟失败: ${error.message}`)
+    res.status(500).json({
+      success: false,
+      error: { code: 'SIMULATION_FAILED', message: error.message }
+    })
+  }
+})
+
 module.exports = router

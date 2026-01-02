@@ -329,8 +329,106 @@
                 step="0.01"
                 type="number"
               />
-              <p class="dark:text灰-400 text-xs text-gray-500">
+              <p class="text-xs text-gray-500 dark:text-gray-400">
                 设置此 API Key 每日的费用限制，超过限制将拒绝请求，0 或留空表示无限制
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+              >每周费用限制 (美元)</label
+            >
+            <div class="space-y-2">
+              <div class="flex gap-2">
+                <button
+                  class="rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.weeklyCostLimit = '100'"
+                >
+                  $100
+                </button>
+                <button
+                  class="rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.weeklyCostLimit = '200'"
+                >
+                  $200
+                </button>
+                <button
+                  class="rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.weeklyCostLimit = '500'"
+                >
+                  $500
+                </button>
+                <button
+                  class="rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.weeklyCostLimit = ''"
+                >
+                  自定义
+                </button>
+              </div>
+              <input
+                v-model="form.weeklyCostLimit"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                min="0"
+                placeholder="0 表示无限制"
+                step="0.01"
+                type="number"
+              />
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                设置此 API Key 每周的费用限制，超过限制将拒绝请求，0 或留空表示无限制
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+              >每月费用限制 (美元)</label
+            >
+            <div class="space-y-2">
+              <div class="flex gap-2">
+                <button
+                  class="rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.monthlyCostLimit = '200'"
+                >
+                  $200
+                </button>
+                <button
+                  class="rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.monthlyCostLimit = '500'"
+                >
+                  $500
+                </button>
+                <button
+                  class="rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.monthlyCostLimit = '1000'"
+                >
+                  $1000
+                </button>
+                <button
+                  class="rounded bg-gray-100 px-2 py-1 text-xs font-medium hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                  type="button"
+                  @click="form.monthlyCostLimit = ''"
+                >
+                  自定义
+                </button>
+              </div>
+              <input
+                v-model="form.monthlyCostLimit"
+                class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:placeholder-gray-400"
+                min="0"
+                placeholder="0 表示无限制"
+                step="0.01"
+                type="number"
+              />
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                设置此 API Key 每月的费用限制，超过限制将拒绝请求，0 或留空表示无限制
               </p>
             </div>
           </div>
@@ -958,6 +1056,8 @@ const form = reactive({
   rateLimitCost: '', // 新增：费用限制
   concurrencyLimit: '',
   dailyCostLimit: '',
+  weeklyCostLimit: '',
+  monthlyCostLimit: '',
   totalCostLimit: '',
   weeklyOpusCostLimit: '',
   expireDuration: '',
@@ -1374,6 +1474,14 @@ const createApiKey = async () => {
       dailyCostLimit:
         form.dailyCostLimit !== '' && form.dailyCostLimit !== null
           ? parseFloat(form.dailyCostLimit)
+          : 0,
+      weeklyCostLimit:
+        form.weeklyCostLimit !== '' && form.weeklyCostLimit !== null
+          ? parseFloat(form.weeklyCostLimit)
+          : 0,
+      monthlyCostLimit:
+        form.monthlyCostLimit !== '' && form.monthlyCostLimit !== null
+          ? parseFloat(form.monthlyCostLimit)
           : 0,
       totalCostLimit:
         form.totalCostLimit !== '' && form.totalCostLimit !== null

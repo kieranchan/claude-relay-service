@@ -16,45 +16,75 @@ datasource db {
 
 /// 套餐表 - 管理不同价格档位的订阅套餐
 model Plan {
-  id              String   @id @db.VarChar(50)
-  name            String   @db.VarChar(100)
-  description     String?  @db.Text
-  type            String   @db.VarChar(20) // subscription | one-time
+  id          String  @id @db.VarChar(50)
+  name        String  @db.VarChar(100)
+  description String? @db.Text
+  type        String  @db.VarChar(20) // subscription | one-time
 
   // 价格信息
-  price           Decimal  @db.Decimal(10, 2)
-  originalPrice   Decimal? @map("original_price") @db.Decimal(10, 2)
-  currency        String   @default("CNY") @db.VarChar(3)
-  billingCycle    String?  @map("billing_cycle") @db.VarChar(20) // monthly | yearly | lifetime
+  price         Decimal  @db.Decimal(10, 2)
+  originalPrice Decimal? @map("original_price") @db.Decimal(10, 2)
+  currency      String   @default("CNY") @db.VarChar(3)
+  billingCycle  String?  @map("billing_cycle") @db.VarChar(20) // monthly | yearly | lifetime
+  validDays     Int      @default(30) @map("valid_days") // 有效天数
+
+  // ========================================
+  // API Key 自动配置（购买后自动创建带以下配置的 Key）
+  // ========================================
+
+  // 费用限制（美元）
+  dailyCostLimit  Decimal? @map("daily_cost_limit") @db.Decimal(10, 2) // 每日费用限制
+  weeklyCostLimit Decimal? @map("weekly_cost_limit") @db.Decimal(10, 2) // 每周费用限制
+  totalCostLimit  Decimal? @map("total_cost_limit") @db.Decimal(10, 2) // 总费用限制
+
+  // 速率限制（关键：5小时限额）
+  rateLimitWindow   Int?     @default(300) @map("rate_limit_window") // 时间窗口（分钟），默认300=5小时
+  rateLimitRequests Int?     @map("rate_limit_requests") // 窗口内请求次数限制
+  rateLimitCost     Decimal? @map("rate_limit_cost") @db.Decimal(10, 2) // 窗口内费用限制（如 $25）
+
+  // 模型权限
+  permissions String @default("all") @db.VarChar(50) // all | claude | gemini | openai | claude,gemini
+
+  // 专属账号（高级套餐如独享版）
+  exclusiveClaudeAccount Boolean @default(false) @map("exclusive_claude_account")
+  exclusiveGeminiAccount Boolean @default(false) @map("exclusive_gemini_account")
+  exclusiveOpenaiAccount Boolean @default(false) @map("exclusive_openai_account")
+
+  // 并发限制
+  concurrencyLimit Int? @map("concurrency_limit")
+
+  // ========================================
+  // 功能和显示配置
+  // ========================================
 
   // 功能配置 (JSONB)
-  features        Json     @default("{}")
+  features Json @default("{}")
 
   // 显示配置
-  sortOrder       Int      @default(0) @map("sort_order")
-  isPopular       Boolean  @default(false) @map("is_popular")
-  isRecommended   Boolean  @default(false) @map("is_recommended")
-  badgeText       String?  @map("badge_text") @db.VarChar(50)
-  badgeColor      String?  @map("badge_color") @db.VarChar(20)
+  sortOrder     Int     @default(0) @map("sort_order")
+  isPopular     Boolean @default(false) @map("is_popular")
+  isRecommended Boolean @default(false) @map("is_recommended")
+  badgeText     String? @map("badge_text") @db.VarChar(50)
+  badgeColor    String? @map("badge_color") @db.VarChar(20)
 
   // 试用和优惠
-  trialDays       Int      @default(0) @map("trial_days")
-  discount        Json?    // 优惠配置
+  trialDays Int   @default(0) @map("trial_days")
+  discount  Json? // 优惠配置
 
   // 状态
-  status          String   @default("active") @db.VarChar(20) // active | inactive | archived
+  status String @default("active") @db.VarChar(20) // active | inactive | archived
 
   // 统计信息
   subscribersCount Int     @default(0) @map("subscribers_count")
-  totalRevenue    Decimal  @default(0) @map("total_revenue") @db.Decimal(12, 2)
+  totalRevenue     Decimal @default(0) @map("total_revenue") @db.Decimal(12, 2)
 
   // 时间戳
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // 关联
-  subscriptions   Subscription[]
-  orders          Order[]
+  subscriptions Subscription[]
+  orders        Order[]
 
   @@index([status])
   @@index([sortOrder], map: "idx_sort_order")
@@ -68,38 +98,71 @@ model Plan {
 
 /// 用户表 - 存储邮箱登录用户账户信息
 model User {
-  id              String   @id @default(uuid()) @db.Uuid
-  email           String   @unique @db.VarChar(255)
-  passwordHash    String   @map("password_hash") @db.VarChar(255)
-  emailVerified   Boolean  @default(false) @map("email_verified")
-  status          String   @default("pending") @db.VarChar(20) // pending | active | suspended | deleted
-  role            String   @default("user") @db.VarChar(20) // user | admin
+  id            String  @id @default(uuid()) @db.Uuid
+  email         String  @unique @db.VarChar(255)
+  passwordHash  String  @map("password_hash") @db.VarChar(255)
+  emailVerified Boolean @default(false) @map("email_verified")
+  status        String  @default("pending") @db.VarChar(20) // pending | active | suspended | deleted
+  role          String  @default("user") @db.VarChar(20) // user | admin | super_admin
+  source        String  @default("email") @db.VarChar(20) // email | ldap | manual
 
   // 登录统计
-  loginCount      Int      @default(0) @map("login_count")
+  loginCount Int @default(0) @map("login_count")
+
+  // 用户信息扩展
+  displayName  String? @map("display_name") @db.VarChar(255)
+  lastLoginIp  String? @map("last_login_ip") @db.VarChar(45)
+  registerIp   String? @map("register_ip") @db.VarChar(45)
 
   // 邀请信息
-  referralCode    String?  @unique @map("referral_code") @db.VarChar(50)
-  invitedById     String?  @map("invited_by") @db.Uuid
-  invitedBy       User?    @relation("UserInvites", fields: [invitedById], references: [id])
-  invitedUsers    User[]   @relation("UserInvites")
+  referralCode String? @unique @map("referral_code") @db.VarChar(50)
+  invitedById  String? @map("invited_by") @db.Uuid
+  invitedBy    User?   @relation("UserInvites", fields: [invitedById], references: [id])
+  invitedUsers User[]  @relation("UserInvites")
 
   // 时间戳
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  lastLoginAt DateTime? @map("last_login_at")
 
   // 关联
-  subscriptions   Subscription[]
-  orders          Order[]
-  apiKeys         ApiKey[]
-  userCoupons     UserCoupon[]
+  subscriptions       Subscription[]
+  orders              Order[]
+  apiKeys             ApiKey[]
+  userCoupons         UserCoupon[]
+  activityLogs        UserActivityLog[]
+  adminAuditLogs      AuditLog[]             @relation("AdminAuditLogs")
+  targetAuditLogs     AuditLog[]             @relation("TargetUserAuditLogs")
+  createdTemplates    NotificationTemplate[] @relation("TemplateCreator")
+  sentNotifications   NotificationLog[]      @relation("NotificationSender")
 
   @@index([email])
   @@index([referralCode], map: "idx_referral_code")
   @@index([createdAt], map: "idx_user_created_at")
+  @@index([lastLoginAt], map: "idx_user_last_login")
   @@index([status], map: "idx_user_status")
+  @@index([role], map: "idx_user_role")
+  @@index([registerIp], map: "idx_user_register_ip")
   @@map("users")
+}
+
+/// 用户活动日志表 - 记录用户的关键操作用于审计
+model UserActivityLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  action    String   @db.VarChar(50) // login | logout | api_key_created | api_key_deleted | password_changed | email_verified | status_changed | role_changed
+  details   Json?    // 操作详情（JSONB）
+  ipAddress String?  @map("ip_address") @db.VarChar(45)
+  userAgent String?  @map("user_agent") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // 关联
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_activity_user_id")
+  @@index([createdAt], map: "idx_activity_created_at")
+  @@index([action], map: "idx_activity_action")
+  @@map("user_activity_logs")
 }
 
 // ========================================
@@ -108,78 +171,81 @@ model User {
 
 /// API Key 表 - 存储用户的 API 访问密钥
 model ApiKey {
-  id                    String   @id @default(uuid()) @db.Uuid
-  name                  String   @db.VarChar(100)
-  description           String?  @db.Text
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @db.VarChar(100)
+  description String? @db.Text
 
   // 密钥信息（存储哈希值）
-  keyHash               String   @unique @map("key_hash") @db.VarChar(64)
+  keyHash String @unique @map("key_hash") @db.VarChar(64)
 
   // 状态
-  isActive              Boolean  @default(true) @map("is_active")
-  isDeleted             Boolean  @default(false) @map("is_deleted")
-  deletedAt             DateTime? @map("deleted_at")
-  deletedBy             String?  @map("deleted_by") @db.VarChar(100)
-  deletedByType         String?  @map("deleted_by_type") @db.VarChar(20) // user | admin | system
+  isActive      Boolean   @default(true) @map("is_active")
+  isDeleted     Boolean   @default(false) @map("is_deleted")
+  deletedAt     DateTime? @map("deleted_at")
+  deletedBy     String?   @map("deleted_by") @db.VarChar(100)
+  deletedByType String?   @map("deleted_by_type") @db.VarChar(20) // user | admin | system
 
   // 限制配置
-  tokenLimit            BigInt   @default(0) @map("token_limit")
-  concurrencyLimit      Int      @default(0) @map("concurrency_limit")
-  rateLimitWindow       Int      @default(0) @map("rate_limit_window") // 分钟
-  rateLimitRequests     Int      @default(0) @map("rate_limit_requests")
-  rateLimitCost         Decimal  @default(0) @map("rate_limit_cost") @db.Decimal(10, 4)
+  tokenLimit        BigInt  @default(0) @map("token_limit")
+  concurrencyLimit  Int     @default(0) @map("concurrency_limit")
+  rateLimitWindow   Int     @default(0) @map("rate_limit_window") // 分钟
+  rateLimitRequests Int     @default(0) @map("rate_limit_requests")
+  rateLimitCost     Decimal @default(0) @map("rate_limit_cost") @db.Decimal(10, 4)
 
   // 费用限制
-  dailyCostLimit        Decimal  @default(0) @map("daily_cost_limit") @db.Decimal(10, 2)
-  totalCostLimit        Decimal  @default(0) @map("total_cost_limit") @db.Decimal(10, 2)
-  weeklyOpusCostLimit   Decimal  @default(0) @map("weekly_opus_cost_limit") @db.Decimal(10, 2)
+  dailyCostLimit      Decimal @default(0) @map("daily_cost_limit") @db.Decimal(10, 2)
+  weeklyCostLimit     Decimal @default(0) @map("weekly_cost_limit") @db.Decimal(10, 2) // 每周费用限制
+  monthlyCostLimit    Decimal @default(0) @map("monthly_cost_limit") @db.Decimal(10, 2) // 每月费用限制
+  totalCostLimit      Decimal @default(0) @map("total_cost_limit") @db.Decimal(10, 2)
+  weeklyOpusCostLimit Decimal @default(0) @map("weekly_opus_cost_limit") @db.Decimal(10, 2)
 
   // 权限配置
-  permissions           String   @default("all") @db.VarChar(50) // all | claude | gemini | openai | droid
+  permissions String @default("all") @db.VarChar(50) // all | claude | gemini | openai | droid
 
   // 账户绑定
-  claudeAccountId       String?  @map("claude_account_id") @db.VarChar(100)
+  claudeAccountId        String? @map("claude_account_id") @db.VarChar(100)
   claudeConsoleAccountId String? @map("claude_console_account_id") @db.VarChar(100)
-  geminiAccountId       String?  @map("gemini_account_id") @db.VarChar(100)
-  openaiAccountId       String?  @map("openai_account_id") @db.VarChar(100)
-  azureOpenaiAccountId  String?  @map("azure_openai_account_id") @db.VarChar(100)
-  bedrockAccountId      String?  @map("bedrock_account_id") @db.VarChar(100)
-  droidAccountId        String?  @map("droid_account_id") @db.VarChar(100)
+  geminiAccountId        String? @map("gemini_account_id") @db.VarChar(100)
+  openaiAccountId        String? @map("openai_account_id") @db.VarChar(100)
+  azureOpenaiAccountId   String? @map("azure_openai_account_id") @db.VarChar(100)
+  bedrockAccountId       String? @map("bedrock_account_id") @db.VarChar(100)
+  droidAccountId         String? @map("droid_account_id") @db.VarChar(100)
 
   // 模型限制
   enableModelRestriction Boolean @default(false) @map("enable_model_restriction")
-  restrictedModels      Json     @default("[]") @map("restricted_models")
+  restrictedModels       Json    @default("[]") @map("restricted_models")
 
   // 客户端限制
   enableClientRestriction Boolean @default(false) @map("enable_client_restriction")
-  allowedClients        Json     @default("[]") @map("allowed_clients")
+  allowedClients          Json    @default("[]") @map("allowed_clients")
 
   // 标签
-  tags                  Json     @default("[]")
+  tags Json @default("[]")
 
   // 过期设置
-  expirationMode        String   @default("fixed") @map("expiration_mode") @db.VarChar(20) // fixed | activation
-  expiresAt             DateTime? @map("expires_at")
-  activationDays        Int      @default(0) @map("activation_days")
-  activationUnit        String   @default("days") @map("activation_unit") @db.VarChar(10) // hours | days
-  isActivated           Boolean  @default(true) @map("is_activated")
-  activatedAt           DateTime? @map("activated_at")
+  expirationMode String    @default("fixed") @map("expiration_mode") @db.VarChar(20) // fixed | activation
+  expiresAt      DateTime? @map("expires_at")
+  activationDays Int       @default(0) @map("activation_days")
+  activationUnit String    @default("days") @map("activation_unit") @db.VarChar(10) // hours | days
+  isActivated    Boolean   @default(true) @map("is_activated")
+  activatedAt    DateTime? @map("activated_at")
 
   // 图标
-  icon                  String?  @db.Text
+  icon String? @db.Text
 
   // 创建者信息
-  createdBy             String   @default("admin") @map("created_by") @db.VarChar(50)
+  createdBy String @default("admin") @map("created_by") @db.VarChar(50)
 
   // 用户关联（可选，用户创建的 Key）
-  userId                String?  @map("user_id") @db.Uuid
-  user                  User?    @relation(fields: [userId], references: [id])
-  userUsername          String?  @map("user_username") @db.VarChar(100)
+  userId       String? @map("user_id") @db.Uuid
+  user         User?   @relation(fields: [userId], references: [id])
+  userUsername String? @map("user_username") @db.VarChar(100)
 
   // 时间戳
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
-  lastUsedAt            DateTime? @map("last_used_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  lastUsedAt   DateTime?     @map("last_used_at")
+  subscription Subscription?
 
   @@index([keyHash], map: "idx_api_key_hash")
   @@index([userId], map: "idx_api_key_user_id")
@@ -191,57 +257,95 @@ model ApiKey {
 }
 
 // ========================================
+// 价格配置
+// ========================================
+
+/// 价格配置表 - 定义各模型的定价和折扣
+model PriceConfig {
+  id String @id @default("default") @db.VarChar(50)
+
+  // 模型定价（每美元配额对应的 RMB 价格）
+  claudePricePerDollar Decimal @default(1.5) @map("claude_price_per_dollar") @db.Decimal(10, 4)
+  geminiPricePerDollar Decimal @default(0.8) @map("gemini_price_per_dollar") @db.Decimal(10, 4)
+  openaiPricePerDollar Decimal @default(1.2) @map("openai_price_per_dollar") @db.Decimal(10, 4)
+  droidPricePerDollar  Decimal @default(1.0) @map("droid_price_per_dollar") @db.Decimal(10, 4)
+
+  // 有效期折扣
+  days30Discount  Decimal @default(1.0) @map("days_30_discount") @db.Decimal(5, 2)
+  days90Discount  Decimal @default(0.9) @map("days_90_discount") @db.Decimal(5, 2)
+  days365Discount Decimal @default(0.8) @map("days_365_discount") @db.Decimal(5, 2)
+
+  // 最低配额限制
+  minCostLimit Decimal @default(10) @map("min_cost_limit") @db.Decimal(10, 2)
+
+  // 时间戳
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("price_configs")
+}
+
+// ========================================
 // 订阅系统
 // ========================================
 
 /// 订阅表 - 用户的套餐订阅记录
 model Subscription {
-  id              String   @id @default(uuid()) @db.Uuid
-  userId          String   @map("user_id") @db.Uuid
-  planId          String   @map("plan_id") @db.VarChar(50)
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  planId String @map("plan_id") @db.VarChar(50)
 
   // 订单关联
-  orderId         String?  @map("order_id") @db.VarChar(50)
+  orderId String? @map("order_id") @db.VarChar(50)
+
+  // 关联的 API Key（自动创建）
+  apiKeyId String? @unique @map("api_key_id") @db.Uuid
 
   // 套餐快照 (防止套餐变更影响已有订阅)
-  planSnapshot    Json     @map("plan_snapshot")
+  planSnapshot Json @map("plan_snapshot")
+
+  // 用户配置（用户自选的模型、配额等）
+  userConfig Json? @map("user_config")
+  // 结构: { models: ["claude", "gemini"], costLimit: 50, validDays: 90 }
 
   // 状态
-  status          String   @default("active") @db.VarChar(20) // active | expired | cancelled | suspended
+  status String @default("active") @db.VarChar(20) // active | expired | cancelled | suspended
 
   // 时间信息
-  startDate       DateTime @map("start_date") @db.Date
-  expireDate      DateTime @map("expire_date") @db.Date
+  startDate       DateTime  @map("start_date") @db.Date
+  expireDate      DateTime  @map("expire_date") @db.Date
   nextBillingDate DateTime? @map("next_billing_date") @db.Date
   cancelledAt     DateTime? @map("cancelled_at")
   suspendedAt     DateTime? @map("suspended_at")
 
   // 自动续费
-  autoRenew       Boolean  @default(true) @map("auto_renew")
-  autoRenewFailedCount Int @default(0) @map("auto_renew_failed_count")
-  lastRenewAttemptAt DateTime? @map("last_renew_attempt_at")
+  autoRenew            Boolean   @default(true) @map("auto_renew")
+  autoRenewFailedCount Int       @default(0) @map("auto_renew_failed_count")
+  lastRenewAttemptAt   DateTime? @map("last_renew_attempt_at")
 
   // 升级信息
-  upgradedFromId  String?  @map("upgraded_from") @db.Uuid
-  upgradedFrom    Subscription? @relation("SubscriptionUpgrade", fields: [upgradedFromId], references: [id])
-  upgradedTo      Subscription[] @relation("SubscriptionUpgrade")
+  upgradedFromId String?        @map("upgraded_from") @db.Uuid
+  upgradedFrom   Subscription?  @relation("SubscriptionUpgrade", fields: [upgradedFromId], references: [id])
+  upgradedTo     Subscription[] @relation("SubscriptionUpgrade")
 
   // 时间戳
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // 关联
-  user            User     @relation(fields: [userId], references: [id])
-  plan            Plan     @relation(fields: [planId], references: [id])
-  order           Order?   @relation(fields: [orderId], references: [id])
-  changes         SubscriptionChange[]
-  renewals        SubscriptionRenewal[]
+  user     User                  @relation(fields: [userId], references: [id])
+  plan     Plan                  @relation(fields: [planId], references: [id])
+  order    Order?                @relation(fields: [orderId], references: [id])
+  apiKey   ApiKey?               @relation(fields: [apiKeyId], references: [id])
+  changes  SubscriptionChange[]
+  renewals SubscriptionRenewal[]
 
   @@index([userId], map: "idx_subscription_user_id")
   @@index([status], map: "idx_subscription_status")
   @@index([expireDate], map: "idx_expire_date")
   @@index([nextBillingDate], map: "idx_next_billing_date")
   @@index([autoRenew], map: "idx_auto_renew")
+  @@index([apiKeyId], map: "idx_subscription_api_key_id")
   @@map("subscriptions")
 }
 
@@ -251,35 +355,35 @@ model Subscription {
 
 /// 订阅变更记录表 - 记录订阅的所有变更历史
 model SubscriptionChange {
-  id              BigInt   @id @default(autoincrement())
-  subscriptionId  String   @map("subscription_id") @db.Uuid
-  userId          String   @map("user_id") @db.Uuid
+  id             BigInt @id @default(autoincrement())
+  subscriptionId String @map("subscription_id") @db.Uuid
+  userId         String @map("user_id") @db.Uuid
 
   // 变更类型: created | renewed | upgraded | downgraded | cancelled | suspended | resumed | expired | auto_renew_enabled | auto_renew_disabled | scheduled_upgrade
-  changeType      String   @map("change_type") @db.VarChar(30)
+  changeType String @map("change_type") @db.VarChar(30)
 
   // 变更前后对比
-  oldPlanId       String?  @map("old_plan_id") @db.VarChar(50)
-  newPlanId       String?  @map("new_plan_id") @db.VarChar(50)
-  oldStatus       String?  @map("old_status") @db.VarChar(20)
-  newStatus       String?  @map("new_status") @db.VarChar(20)
-  oldExpireDate   DateTime? @map("old_expire_date") @db.Date
-  newExpireDate   DateTime? @map("new_expire_date") @db.Date
+  oldPlanId     String?   @map("old_plan_id") @db.VarChar(50)
+  newPlanId     String?   @map("new_plan_id") @db.VarChar(50)
+  oldStatus     String?   @map("old_status") @db.VarChar(20)
+  newStatus     String?   @map("new_status") @db.VarChar(20)
+  oldExpireDate DateTime? @map("old_expire_date") @db.Date
+  newExpireDate DateTime? @map("new_expire_date") @db.Date
 
   // 关联信息
-  relatedOrderId  String?  @map("related_order_id") @db.VarChar(50)
+  relatedOrderId String? @map("related_order_id") @db.VarChar(50)
 
   // 变更原因
-  reason          String?  @db.Text
+  reason String? @db.Text
 
   // 操作人
-  operatedBy      String?  @map("operated_by") @db.Uuid
+  operatedBy String? @map("operated_by") @db.Uuid
 
   // 时间戳
-  createdAt       DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
   // 关联
-  subscription    Subscription @relation(fields: [subscriptionId], references: [id])
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
 
   @@index([subscriptionId], map: "idx_change_subscription_id")
   @@index([userId], map: "idx_change_user_id")
@@ -294,28 +398,28 @@ model SubscriptionChange {
 
 /// 订阅续费记录表 - 记录所有续费尝试
 model SubscriptionRenewal {
-  id              BigInt   @id @default(autoincrement())
-  subscriptionId  String   @map("subscription_id") @db.Uuid
-  orderId         String?  @map("order_id") @db.VarChar(50)
+  id             BigInt  @id @default(autoincrement())
+  subscriptionId String  @map("subscription_id") @db.Uuid
+  orderId        String? @map("order_id") @db.VarChar(50)
 
   // 续费信息
-  renewalType     String   @map("renewal_type") @db.VarChar(20) // auto | manual
-  renewalPrice    Decimal  @map("renewal_price") @db.Decimal(10, 2)
+  renewalType  String  @map("renewal_type") @db.VarChar(20) // auto | manual
+  renewalPrice Decimal @map("renewal_price") @db.Decimal(10, 2)
 
   // 状态: pending | success | failed
-  status          String   @db.VarChar(20)
+  status String @db.VarChar(20)
 
   // 失败信息
-  failureReason   String?  @map("failure_reason") @db.Text
-  retryCount      Int      @default(0) @map("retry_count")
-  nextRetryAt     DateTime? @map("next_retry_at")
+  failureReason String?   @map("failure_reason") @db.Text
+  retryCount    Int       @default(0) @map("retry_count")
+  nextRetryAt   DateTime? @map("next_retry_at")
 
   // 时间信息
-  attemptedAt     DateTime @default(now()) @map("attempted_at")
-  succeededAt     DateTime? @map("succeeded_at")
+  attemptedAt DateTime  @default(now()) @map("attempted_at")
+  succeededAt DateTime? @map("succeeded_at")
 
   // 关联
-  subscription    Subscription @relation(fields: [subscriptionId], references: [id])
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
 
   @@index([subscriptionId], map: "idx_renewal_subscription_id")
   @@index([orderId], map: "idx_renewal_order_id")
@@ -330,57 +434,61 @@ model SubscriptionRenewal {
 
 /// 订单表 - 用户购买套餐的订单记录
 model Order {
-  id              String   @id @db.VarChar(50) // 订单号：ORD + 年月日 + 9位随机数
+  id String @id @db.VarChar(50) // 订单号：ORD + 年月日 + 9位随机数
 
   // 关联信息
-  userId          String   @map("user_id") @db.Uuid
-  planId          String   @map("plan_id") @db.VarChar(50)
+  userId String @map("user_id") @db.Uuid
+  planId String @map("plan_id") @db.VarChar(50)
 
   // 套餐快照（记录购买时的套餐信息，防止套餐变更影响订单）
-  planSnapshot    Json     @map("plan_snapshot")
+  planSnapshot Json @map("plan_snapshot")
+
+  // 用户配置（用户自选的模型、配额等）
+  userConfig Json? @map("user_config")
+  // 结构: { models: ["claude", "gemini"], costLimit: 50, validDays: 90 }
 
   // 金额信息（单位：元，保留2位小数）
-  originalPrice   Decimal  @map("original_price") @db.Decimal(10, 2)
-  discountAmount  Decimal  @default(0) @map("discount_amount") @db.Decimal(10, 2)
-  finalPrice      Decimal  @map("final_price") @db.Decimal(10, 2)
-  currency        String   @default("CNY") @db.VarChar(3)
+  originalPrice  Decimal @map("original_price") @db.Decimal(10, 2)
+  discountAmount Decimal @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  finalPrice     Decimal @map("final_price") @db.Decimal(10, 2)
+  currency       String  @default("CNY") @db.VarChar(3)
 
   // 优惠信息
-  couponCode      String?  @map("coupon_code") @db.VarChar(50)
-  couponDiscount  Decimal  @default(0) @map("coupon_discount") @db.Decimal(10, 2)
-  inviteDiscount  Decimal  @default(0) @map("invite_discount") @db.Decimal(10, 2)
+  couponCode     String? @map("coupon_code") @db.VarChar(50)
+  couponDiscount Decimal @default(0) @map("coupon_discount") @db.Decimal(10, 2)
+  inviteDiscount Decimal @default(0) @map("invite_discount") @db.Decimal(10, 2)
 
   // 订单状态
-  status          String   @default("pending") @db.VarChar(20) // pending | paid | cancelled | expired | refunded
-  paymentMethod   String?  @map("payment_method") @db.VarChar(20) // alipay | wechat | stripe
-  paymentStatus   String   @default("pending") @map("payment_status") @db.VarChar(20) // pending | success | failed | refunded
+  status        String  @default("pending") @db.VarChar(20) // pending | paid | cancelled | expired | refunded
+  paymentMethod String? @map("payment_method") @db.VarChar(20) // alipay | wechat | stripe
+  paymentStatus String  @default("pending") @map("payment_status") @db.VarChar(20) // pending | success | failed | refunded
 
   // 支付信息
-  paymentInfo     Json?    @map("payment_info") // 支付相关信息（二维码、链接等）
-  transactionId   String?  @map("transaction_id") @db.VarChar(100) // 第三方支付交易号
+  paymentInfo   Json?   @map("payment_info") // 支付相关信息（二维码、链接等）
+  transactionId String? @map("transaction_id") @db.VarChar(100) // 第三方支付交易号
 
   // IP和设备信息
-  userIp          String?  @map("user_ip") @db.VarChar(50)
-  userAgent       String?  @map("user_agent") @db.Text
+  userIp    String? @map("user_ip") @db.VarChar(50)
+  userAgent String? @map("user_agent") @db.Text
 
   // 备注
-  note            String?  @db.Text
-  cancelReason    String?  @map("cancel_reason") @db.Text
-  refundReason    String?  @map("refund_reason") @db.Text
+  note         String? @db.Text
+  cancelReason String? @map("cancel_reason") @db.Text
+  refundReason String? @map("refund_reason") @db.Text
 
   // 时间信息
-  createdAt       DateTime @default(now()) @map("created_at")
-  paidAt          DateTime? @map("paid_at")
-  cancelledAt     DateTime? @map("cancelled_at")
-  refundedAt      DateTime? @map("refunded_at")
-  expireAt        DateTime? @map("expire_at") // 订单过期时间（创建后15分钟）
+  createdAt   DateTime  @default(now()) @map("created_at")
+  paidAt      DateTime? @map("paid_at")
+  cancelledAt DateTime? @map("cancelled_at")
+  refundedAt  DateTime? @map("refunded_at")
+  expireAt    DateTime? @map("expire_at") // 订单过期时间（创建后15分钟）
 
   // 关联
-  user            User     @relation(fields: [userId], references: [id])
-  plan            Plan     @relation(fields: [planId], references: [id])
+  user             User              @relation(fields: [userId], references: [id])
+  plan             Plan              @relation(fields: [planId], references: [id])
   paymentCallbacks PaymentCallback[]
-  refunds         Refund[]
-  subscriptions   Subscription[]
+  refunds          Refund[]
+  subscriptions    Subscription[]
 
   @@index([userId], map: "idx_order_user_id")
   @@index([planId], map: "idx_order_plan_id")
@@ -398,31 +506,31 @@ model Order {
 
 /// 支付回调日志表 - 记录所有支付平台的回调
 model PaymentCallback {
-  id                BigInt   @id @default(autoincrement())
-  orderId           String   @map("order_id") @db.VarChar(50)
+  id      BigInt @id @default(autoincrement())
+  orderId String @map("order_id") @db.VarChar(50)
 
   // 回调信息
-  paymentMethod     String   @map("payment_method") @db.VarChar(20) // alipay | wechat | stripe
-  callbackData      Json     @map("callback_data") // 完整的回调数据
+  paymentMethod String @map("payment_method") @db.VarChar(20) // alipay | wechat | stripe
+  callbackData  Json   @map("callback_data") // 完整的回调数据
 
   // 验证信息
-  signatureValid    Boolean? @map("signature_valid")
-  verificationResult String? @map("verification_result") @db.Text
+  signatureValid     Boolean? @map("signature_valid")
+  verificationResult String?  @map("verification_result") @db.Text
 
   // 处理信息
-  processed         Boolean  @default(false)
-  processResult     String?  @map("process_result") @db.Text
-  errorMessage      String?  @map("error_message") @db.Text
+  processed     Boolean @default(false)
+  processResult String? @map("process_result") @db.Text
+  errorMessage  String? @map("error_message") @db.Text
 
   // 来源信息
-  sourceIp          String?  @map("source_ip") @db.VarChar(50)
+  sourceIp String? @map("source_ip") @db.VarChar(50)
 
   // 时间戳
-  receivedAt        DateTime @default(now()) @map("received_at")
-  processedAt       DateTime? @map("processed_at")
+  receivedAt  DateTime  @default(now()) @map("received_at")
+  processedAt DateTime? @map("processed_at")
 
   // 关联
-  order             Order    @relation(fields: [orderId], references: [id])
+  order Order @relation(fields: [orderId], references: [id])
 
   @@index([orderId], map: "idx_callback_order_id")
   @@index([paymentMethod], map: "idx_callback_payment_method")
@@ -437,34 +545,34 @@ model PaymentCallback {
 
 /// 退款记录表 - 订单退款申请和处理记录
 model Refund {
-  id                  String   @id @db.VarChar(50) // 退款单号：REF + 年月日 + 9位随机数
-  orderId             String   @map("order_id") @db.VarChar(50)
+  id      String @id @db.VarChar(50) // 退款单号：REF + 年月日 + 9位随机数
+  orderId String @map("order_id") @db.VarChar(50)
 
   // 退款信息
-  refundAmount        Decimal  @map("refund_amount") @db.Decimal(10, 2)
-  refundReason        String?  @map("refund_reason") @db.Text
-  refundType          String   @map("refund_type") @db.VarChar(20) // full | partial
+  refundAmount Decimal @map("refund_amount") @db.Decimal(10, 2)
+  refundReason String? @map("refund_reason") @db.Text
+  refundType   String  @map("refund_type") @db.VarChar(20) // full | partial
 
   // 状态
-  status              String   @default("pending") @db.VarChar(20) // pending | processing | success | failed | rejected
+  status String @default("pending") @db.VarChar(20) // pending | processing | success | failed | rejected
 
   // 第三方信息
-  refundTransactionId String?  @map("refund_transaction_id") @db.VarChar(100)
+  refundTransactionId String? @map("refund_transaction_id") @db.VarChar(100)
 
   // 操作信息
-  createdBy           String?  @map("created_by") @db.Uuid // 申请人（用户ID）
-  approvedBy          String?  @map("approved_by") @db.Uuid // 审批人（管理员ID）
-  rejectedBy          String?  @map("rejected_by") @db.Uuid
-  rejectedReason      String?  @map("rejected_reason") @db.Text
+  createdBy      String? @map("created_by") @db.Uuid // 申请人（用户ID）
+  approvedBy     String? @map("approved_by") @db.Uuid // 审批人（管理员ID）
+  rejectedBy     String? @map("rejected_by") @db.Uuid
+  rejectedReason String? @map("rejected_reason") @db.Text
 
   // 时间信息
-  createdAt           DateTime @default(now()) @map("created_at")
-  approvedAt          DateTime? @map("approved_at")
-  completedAt         DateTime? @map("completed_at")
-  rejectedAt          DateTime? @map("rejected_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  approvedAt  DateTime? @map("approved_at")
+  completedAt DateTime? @map("completed_at")
+  rejectedAt  DateTime? @map("rejected_at")
 
   // 关联
-  order               Order    @relation(fields: [orderId], references: [id])
+  order Order @relation(fields: [orderId], references: [id])
 
   @@index([orderId], map: "idx_refund_order_id")
   @@index([status], map: "idx_refund_status")
@@ -478,44 +586,44 @@ model Refund {
 
 /// 优惠券模板表 - 管理优惠券活动
 model Coupon {
-  id                  String   @id @db.VarChar(50)
-  name                String   @db.VarChar(100)
-  description         String?  @db.Text
-  code                String?  @unique @db.VarChar(50)
+  id          String  @id @db.VarChar(50)
+  name        String  @db.VarChar(100)
+  description String? @db.Text
+  code        String? @unique @db.VarChar(50)
 
   // 优惠类型：percentage | fixed_amount | full_reduction
-  type                String   @db.VarChar(20)
-  value               Decimal  @db.Decimal(10, 2)
+  type  String  @db.VarChar(20)
+  value Decimal @db.Decimal(10, 2)
 
   // 使用条件
-  minPurchaseAmount   Decimal? @map("min_purchase_amount") @db.Decimal(10, 2)
-  maxDiscountAmount   Decimal? @map("max_discount_amount") @db.Decimal(10, 2)
-  applicablePlans     Json?    @map("applicable_plans")
-  excludePlans        Json?    @map("exclude_plans")
+  minPurchaseAmount Decimal? @map("min_purchase_amount") @db.Decimal(10, 2)
+  maxDiscountAmount Decimal? @map("max_discount_amount") @db.Decimal(10, 2)
+  applicablePlans   Json?    @map("applicable_plans")
+  excludePlans      Json?    @map("exclude_plans")
 
   // 数量限制
-  totalQuantity       Int?     @map("total_quantity")
-  receivedCount       Int      @default(0) @map("received_count")
-  usedCount           Int      @default(0) @map("used_count")
-  perUserLimit        Int      @default(1) @map("per_user_limit")
+  totalQuantity Int? @map("total_quantity")
+  receivedCount Int  @default(0) @map("received_count")
+  usedCount     Int  @default(0) @map("used_count")
+  perUserLimit  Int  @default(1) @map("per_user_limit")
 
   // 时间限制
-  startTime           DateTime @map("start_time")
-  endTime             DateTime @map("end_time")
+  startTime DateTime @map("start_time")
+  endTime   DateTime @map("end_time")
 
   // 状态：active | inactive | expired
-  status              String   @default("active") @db.VarChar(20)
-  stackable           Boolean  @default(false)
+  status    String  @default("active") @db.VarChar(20)
+  stackable Boolean @default(false)
 
   // 发放方式：public | code | targeted
-  distributionType    String   @map("distribution_type") @db.VarChar(20)
+  distributionType String @map("distribution_type") @db.VarChar(20)
 
-  createdBy           String?  @map("created_by") @db.Uuid
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  userCoupons         UserCoupon[]
-  couponUsages        CouponUsage[]
+  userCoupons  UserCoupon[]
+  couponUsages CouponUsage[]
 
   @@index([code], map: "idx_coupon_code")
   @@index([status], map: "idx_coupon_status")
@@ -527,19 +635,19 @@ model Coupon {
 
 /// 用户优惠券表 - 用户领取/持有的优惠券
 model UserCoupon {
-  id          BigInt    @id @default(autoincrement())
-  userId      String    @map("user_id") @db.Uuid
-  couponId    String    @map("coupon_id") @db.VarChar(50)
+  id       BigInt @id @default(autoincrement())
+  userId   String @map("user_id") @db.Uuid
+  couponId String @map("coupon_id") @db.VarChar(50)
 
   // 状态：available | used | expired
-  status      String    @default("available") @db.VarChar(20)
-  orderId     String?   @map("order_id") @db.VarChar(50)
-  usedAt      DateTime? @map("used_at")
-  receivedAt  DateTime  @default(now()) @map("received_at")
-  expireAt    DateTime? @map("expire_at")
+  status     String    @default("available") @db.VarChar(20)
+  orderId    String?   @map("order_id") @db.VarChar(50)
+  usedAt     DateTime? @map("used_at")
+  receivedAt DateTime  @default(now()) @map("received_at")
+  expireAt   DateTime? @map("expire_at")
 
-  user        User      @relation(fields: [userId], references: [id])
-  coupon      Coupon    @relation(fields: [couponId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
+  coupon       Coupon        @relation(fields: [couponId], references: [id])
   couponUsages CouponUsage[]
 
   @@unique([userId, couponId], map: "idx_user_coupon_unique")
@@ -552,24 +660,115 @@ model UserCoupon {
 
 /// 优惠券使用记录表 - 记录优惠券使用详情
 model CouponUsage {
-  id              BigInt   @id @default(autoincrement())
-  userCouponId    BigInt   @map("user_coupon_id")
-  userId          String   @map("user_id") @db.Uuid
-  couponId        String   @map("coupon_id") @db.VarChar(50)
-  orderId         String   @map("order_id") @db.VarChar(50)
+  id           BigInt @id @default(autoincrement())
+  userCouponId BigInt @map("user_coupon_id")
+  userId       String @map("user_id") @db.Uuid
+  couponId     String @map("coupon_id") @db.VarChar(50)
+  orderId      String @map("order_id") @db.VarChar(50)
 
-  originalPrice   Decimal  @map("original_price") @db.Decimal(10, 2)
-  discountAmount  Decimal  @map("discount_amount") @db.Decimal(10, 2)
-  finalPrice      Decimal  @map("final_price") @db.Decimal(10, 2)
+  originalPrice  Decimal @map("original_price") @db.Decimal(10, 2)
+  discountAmount Decimal @map("discount_amount") @db.Decimal(10, 2)
+  finalPrice     Decimal @map("final_price") @db.Decimal(10, 2)
 
-  usedAt          DateTime @default(now()) @map("used_at")
+  usedAt DateTime @default(now()) @map("used_at")
 
-  userCoupon      UserCoupon @relation(fields: [userCouponId], references: [id])
-  coupon          Coupon     @relation(fields: [couponId], references: [id])
+  userCoupon UserCoupon @relation(fields: [userCouponId], references: [id])
+  coupon     Coupon     @relation(fields: [couponId], references: [id])
 
   @@index([userId], map: "idx_coupon_usage_user_id")
   @@index([couponId], map: "idx_coupon_usage_coupon_id")
   @@index([orderId], map: "idx_coupon_usage_order_id")
   @@index([usedAt], map: "idx_coupon_usage_used_at")
   @@map("coupon_usages")
+}
+
+// ========================================
+// 安全与审计系统
+// ========================================
+
+/// 审计日志表 - 记录管理员对用户的操作
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  adminId      String?  @map("admin_id") @db.Uuid
+  targetUserId String?  @map("target_user_id") @db.Uuid
+  action       String   @db.VarChar(50) // e.g., USER_UPDATE, KEY_DELETE
+  details      Json?    // 操作详情
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // 关联
+  admin      User? @relation("AdminAuditLogs", fields: [adminId], references: [id])
+  targetUser User? @relation("TargetUserAuditLogs", fields: [targetUserId], references: [id])
+
+  @@index([adminId], map: "idx_audit_admin_id")
+  @@index([targetUserId], map: "idx_audit_target_user_id")
+  @@index([action], map: "idx_audit_action")
+  @@index([createdAt], map: "idx_audit_created_at")
+  @@map("audit_logs")
+}
+
+/// 登录尝试记录表 - 用于检测暴力破解和异常登录
+model LoginAttempt {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @db.VarChar(255)
+  ipAddress String   @map("ip_address") @db.VarChar(45)
+  success   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email, ipAddress], map: "idx_login_attempt_email_ip")
+  @@index([createdAt], map: "idx_login_attempt_created_at")
+  @@map("login_attempts")
+}
+
+// ========================================
+// 通知系统
+// ========================================
+
+/// 通知模板表 - 存储可复用的通知模板
+model NotificationTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(100) // 模板名称
+  subject     String   @db.VarChar(255) // 邮件主题
+  content     String   @db.Text // 邮件内容 (支持 HTML 和变量)
+  description String?  @db.VarChar(255) // 模板描述
+  category    String   @default("general") @db.VarChar(50) // 分类: general, marketing, system, alert
+  isActive    Boolean  @default(true) @map("is_active") // 是否启用
+  createdBy   String?  @map("created_by") @db.Uuid // 创建人
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // 关联
+  creator User? @relation("TemplateCreator", fields: [createdBy], references: [id])
+  logs    NotificationLog[]
+
+  @@index([category], map: "idx_template_category")
+  @@index([isActive], map: "idx_template_is_active")
+  @@map("notification_templates")
+}
+
+/// 通知发送日志表 - 记录每次批量通知的发送情况
+model NotificationLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  templateId   String?  @map("template_id") @db.Uuid // 使用的模板（可选）
+  subject      String   @db.VarChar(255) // 发送的主题
+  content      String   @db.Text // 发送的内容
+  targetFilter String?  @map("target_filter") @db.VarChar(50) // 筛选条件: all, active, suspended, userIds
+  targetCount  Int      @map("target_count") // 目标用户数
+  successCount Int      @default(0) @map("success_count") // 成功数
+  failedCount  Int      @default(0) @map("failed_count") // 失败数
+  status       String   @default("pending") @db.VarChar(20) // pending, sending, completed, failed
+  adminId      String?  @map("admin_id") @db.Uuid // 发送人
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  createdAt    DateTime @default(now()) @map("created_at")
+  completedAt  DateTime? @map("completed_at")
+
+  // 关联
+  template NotificationTemplate? @relation(fields: [templateId], references: [id])
+  admin    User?                 @relation("NotificationSender", fields: [adminId], references: [id])
+
+  @@index([templateId], map: "idx_notification_log_template")
+  @@index([adminId], map: "idx_notification_log_admin")
+  @@index([status], map: "idx_notification_log_status")
+  @@index([createdAt], map: "idx_notification_log_created_at")
+  @@map("notification_logs")
 }
